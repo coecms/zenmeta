@@ -1,0 +1,11 @@
+{ 'codeRepository': 'html_url',
+  'programmingLanguage': 'languages_url',
+  'downloadUrl': 'archive_url',
+  'author': 'login',
+  'dateCreated':  'created_at',
+  'dateModified': 'updated_at',
+  'license': 'license',
+  'description': 'description',
+  'identifier': 'id',
+  'name': 'full_name',
+  'issueTracker': 'issues_url'}
