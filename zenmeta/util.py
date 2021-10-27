@@ -20,7 +20,150 @@ import json
 from datetime import date
 from os.path import expanduser
 import sys
-from .util import post_json, get_token, read_json
+
+def get_token(sandbox=False):
+    """ Read api authentication token for zenodo or sandbox 
+        
+    Parameters
+    ----------
+    sandox : bool, optional
+        If True read and return the sandbox token (default is
+        False)
+
+    Returns
+    -------
+    token : str
+        The authentication token for the zenodo or sandbox api
+    """
+
+    if sandbox:
+        fname = expanduser('~/.sandbox')
+    else:
+        fname = expanduser('~/.zenodo')
+    with open(fname,'r') as f:
+         token=f.readline().replace("\n","")
+    return token
+
+
+def read_json(fname):
+    """ Read a json file and return content 
+        
+    Parameters
+    ----------
+    fname : str
+        Json filename 
+
+    Returns
+    -------
+    data : json object
+        The file content as a json object
+    """
+
+    try:
+        with open(fname, 'r') as f:
+            data = json.load(f)
+    except:
+        print(f"Check that {fname} is a proper json file")
+        sys.exit()
+    return data
+
+
+def post_json(url, token, data):
+    """ Post data to a json file
+        
+    Parameters
+    ----------
+    url : str
+        The url address to post to 
+    token : str
+        The authentication token for the api 
+    data : json object
+        The file content as a json object
+
+    Returns
+    -------
+    r : requests object
+      The requests response object
+    """
+
+    headers = {"Content-Type": "application/json"}
+    r = requests.post(url,
+            params={'access_token': token}, json=data,
+            headers=headers)
+    if r.status_code in  [400, 403, 500]:
+        print(r.text)
+    return r
+
+
+def get_bucket(url, token, record_id):
+    """ Get bucket url from record json data
+    
+    Parameters
+    ----------
+    url : str 
+        The base url of application
+    token : str
+        The authentication token for the api 
+    record_id : str
+        The id for record we want to upload files to
+
+    Returns
+    -------
+    bucket_url : str
+        The url for the file bucket to which upload files
+    """
+
+    headers = {"Content-Type": "application/json"}
+    url += f"{record_id}"
+    r = requests.get(url, params={'access_token': token},
+                     headers=headers)
+    return r.json()["links"]["bucket"]
+
+
+def get_drafts(url, token, community_id=None, community=False):
+    """Get a list of yours or all drafts records for a specific community
+
+    Parameters
+    ----------
+    url : str
+        The url address to post to 
+    token : str
+        The authentication token for the api 
+    community : bool, optional 
+        If True then retrieve all the draft records for the community
+        (default False) 
+    community_id : str, optional
+        The community identifier to add to the url. It has to be present if community True
+        (default None)
+
+    Returns
+    -------
+    drafts : json object
+        A list of all the draft record_ids returned by the api query  
+
+    """
+    # potentially consider this
+    #get_drafts(url, token, record_id=None, community_id=None, community=False):
+    #if record_id:
+    #    url += f"${record_id}"
+    #else:
+    #    url += f"?state='unsubmitted'"
+    #    if all:
+    if community and community_id is None:
+        print('You need to pass the community_id to retrieve drafts from a community')
+        sys.exit()
+
+    headers = {"Content-Type": "application/json"}
+    url += f"?state='unsubmitted'"
+    if community:
+        url += f"&community={community_id}"
+    r = requests.get(url, params={'access_token': token},
+                     headers=headers)
+    #print(r.url)
+    #print(r.status_code)
+    drafts = r.json()
+    return drafts
+
 
 def process_author(author):
     """ Create a author dictionary following the api requirements 
@@ -126,37 +269,3 @@ def process_plan(plan, community_id):
     final['state'] = 'inprogress'
     final['submitted'] = False
     return final 
-
-def main():
-
-    # define urls, input file and if loading to sandbox or production
-    global authors
-    # read a list of already processed authors from file, if new authors are found this gets updated at end of process
-    authors = read_json('authors.json') 
-    url='https://sandbox.zenodo.org/api/deposit/depositions'
-    community_id = 'clex-data'
-    sandbox = True
-    fname = sys.argv[1]
-    if len(sys.argv) == 3:
-        if sys.argv[2] == 'production':
-            sandbox = False
-            url='https://zenodo.org/api/deposit/depositions'
-            community_id = 'arc-coe-clex-data'
-
-    # get either sandbox or api token to connect
-    token = get_token(sandbox)
-
-    # read data from input json file and process plans in file
-    data = read_json(fname)
-    # process data for each plan and post records returned by process_plan()
-    for plan in data:
-        record = process_plan(plan, community_id)
-        print(plan['metadata']['title'])
-        r = post_json(url, token, record)
-        print(r.status_code)
-    # optional dumping authors list
-    with open('latest_authors.json', 'w') as fp:
-        json.dump(authors, fp)
-
-if __name__ == "__main__":
-    main()

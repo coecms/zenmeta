@@ -1,32 +1,26 @@
+#!/usr/bin/env python
+# coding: utf-8
+# Copyright 2021 ARC Centre of Excellence for Climate Extremes
+# author: Paola Petrelli <paola.petrelli@utas.edu.au>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import requests
 import json
 from datetime import date
 from os.path import expanduser
 import sys
-
-def get_token(sandbox):
-    """
-    """
-    if sandbox:
-        fname = expanduser('~/.sandbox')
-    else:
-        fname = expanduser('~/.zenodo')
-    with open(fname,'r') as f:
-         token=f.readline().replace("\n","")
-    return token
-
-
-def read_json(fname):
-    """
-    """
-    try:
-        with open(fname, 'r') as f:
-            data = json.load(f)
-    except:
-        print(f"Check that {fname} is a proper json file")
-        sys.exit()
-    return data
-
+from .utils import get_token, read_json, get_bucket
 
 def get_drafts(url, token, community, community_id):
     """
@@ -37,12 +31,15 @@ def get_drafts(url, token, community, community_id):
         url += f"&community={community_id}"
     r = requests.get(url, params={'access_token': token},
                      headers=headers)
-    print(r.url)
+    #print(r.url)
     #print(r.status_code)
     return r.json()
 
 
 def remove_record(url, token, record_id, safe):
+    """
+    """
+
     headers = {"Content-Type": "application/json"}
     # if safe mode ask for confirmation before deleting 
     answer = 'Y'
@@ -96,7 +93,7 @@ def main():
     # if no record_ids were passed as input get all draft records 
     # double check state is correct as query seemed to ignore this filter
     if len(record_ids) == 0:
-        records = get_drafts(url, token, community, community_id)
+        records = get_drafts(url, token, community_id=community_id, community=community)
         record_ids = [x['id'] for x in records if x['state'] == 'unsubmitted']
 
     for record_id in record_ids:

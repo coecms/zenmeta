@@ -1,51 +1,49 @@
+#!/usr/bin/env python
+# coding: utf-8
+# Copyright 2021 ARC Centre of Excellence for Climate Extremes
+# author: Paola Petrelli <paola.petrelli@utas.edu.au>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import requests
 import json
 from datetime import date
 from os.path import expanduser
 import sys
-
-def get_token(sandbox):
-    """
-    """
-    if sandbox:
-        fname = expanduser('~/.sandbox')
-    else:
-        fname = expanduser('~/.zenodo')
-    with open(fname,'r') as f:
-         token=f.readline().replace("\n","")
-    return token
-
-
-def read_json(fname):
-    """
-    """
-    try:
-        with open(fname, 'r') as f:
-            data = json.load(f)
-    except:
-        print(f"Check that {fname} is a proper json file")
-        sys.exit()
-    return data
-
-
-def get_bucket(url, token, record_id):
-    """ Get bucket url from record json data
-        Input:
-            url - (string) the base url of application
-            token - the api token
-            record_id - the id for record we want to upload files to
-    """
-    headers = {"Content-Type": "application/json"}
-    url += f"{record_id}"
-    print(url)
-    r = requests.get(url, params={'access_token': token},
-                     headers=headers)
-    return r.json()["links"]["bucket"]
+from .utils import get_token, read_json, get_bucket
 
 
 def upload_file(bucket_url, token, record_id, fpath):
     """Upload file to selected record
+
+    Parameters
+    ----------
+    bucket_url : str
+        The url for the file bucket to which upload files
+    token : str
+        The authentication token for the zenodo or sandbox api
+    record_id : str
+        The id for record we want to upload files to
+    fpath : str
+        The path for file to upload
+
+    Returns
+    -------
+    r : requests object
+      The requests response object
+
     """
+
     headers = {"Content-Type": "application/octet-stream"}
     with open(fpath, "rb") as fp:
         r = requests.put(
@@ -53,8 +51,7 @@ def upload_file(bucket_url, token, record_id, fpath):
             data=fp,
             params={'access_token': token},
             headers=headers)
-    print(r.json())
-    return
+    return r
 
 
 def main():
