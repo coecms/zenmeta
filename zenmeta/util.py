@@ -64,7 +64,7 @@ def read_json(fname):
         with open(fname, 'r') as f:
             data = json.load(f)
     except:
-        print(f"Check that {fname} is a proper json file")
+        print(f"Check that {fname} exists and it is a proper json file")
         sys.exit()
     return data
 

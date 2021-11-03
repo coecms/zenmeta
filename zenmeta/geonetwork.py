@@ -15,6 +15,39 @@ def find_string(soup, tag, multiple=False):
             val = field.text.strip()
     return val
 
+def process_urls(urls, geo_id):
+    """
+    """
+    links = []
+    for x in urls:
+        url = x.text
+        if 'researchdata.edu.au' in url:
+            links.append({'RDA': url})
+        elif 'thredds' in url:
+            links.append({'TDS': url})
+        else:
+            links.append({'other': url})
+    links.append({'geonetwork': f"https://geonetwork.nci.org.au/geonetwork/srv/eng/catalog.search#/metadata/{geo_id}"})
+    return links
+
+def process_description(soup, keywords, for_codes):
+    """Put together description adding to the abstract other fields that cannot be directly mapped to other fields
+    """
+
+    # retireieve all the relevant fields
+    abstract = find_string(soup, 'abstract')
+    update = "<p>Update: " + find_string(soup, 'maintenanceAndUpdateFrequency') + "</p>"
+    fformat = "<p>Format: " + find_string(soup, 'MD_Format') + "</p>"
+    lineage = "<p>Lineage: " + find_string(soup, 'LI_Lineage') + "</p>"
+    credit = "<p>Credit: " + find_string(soup, 'credit') + "</p>"
+    classification = "<p>Classification: " + find_string(soup, 'MD_ClassificationCode') + "</p>"
+    official_record = "<p>Official metadata and access to the data is via the NCI geonetwork record in related identifiers.</p>"
+    # temporarily add keywords and for_codes here as we're using FOR codes 2020 and geonetwork sues older version 
+    keystr = f"<p>Keywords: {', '.join(keywords)}</p>"
+    codestr = f"<p>FOR codes: {' '.join([f'{str(k)} - {str(v)}' for k,v in for_codes.items()])}</p>"
+    description = "".join( [abstract, official_record, lineage, credit, fformat,
+                                         classification, update, keystr, codestr] ) 
+    return description
 
 
 def main():
@@ -30,15 +63,9 @@ def main():
     out = {}
     out['title'] = find_string(soup, 'title')
     out['alt_title'] = find_string(soup, 'alternateTitle')
-    abstract = find_string(soup, 'abstract')
     out['doi'] = find_string(soup, 'dataSetURI')
     out['license'] = find_string(soup, 'useLimitation')
     path = find_string(soup, 'mediumName')
-    update = find_string(soup, 'maintenanceAndUpdateFrequency')
-    fformat = find_string(soup, 'MD_Format')
-    lineage = find_string(soup, 'LI_Lineage')
-    credit = find_string(soup, 'credit')
-    classification = find_string(soup, 'MD_ClassificationCode')
     project = find_string(soup, 'code')
 
     # Retrieve for codes and keywords
@@ -64,11 +91,15 @@ def main():
     parties = soup.find_all('CI_ResponsibleParty')
     people = [] 
     for p in parties:
-        role = p.find('CI_RoleCode').text.strip()
+        #role = p.find('CI_RoleCode').text.strip()
+        role = find_string(p,'CI_RoleCode')
         if role in ['author', 'owner', 'funder', 'principalInvestigator']:
-            person = { 'name': p.find('individualName').text.strip(),
-                       'affiliation' : p.find('organisationName').text.strip(),
+            person = { 'name': find_string(p, 'individualName'),
+                       'affiliation' : find_string(p, 'organisationName'),
                        'role': role, 'org': False} 
+            #person = { 'name': p.find('individualName').text.strip(),
+            #           'affiliation' : p.find('organisationName').text.strip(),
+            #           'role': role, 'org': False} 
             if person['name'] == person['affiliation']:
                 person['org'] = True
             people.append(person)
@@ -76,10 +107,10 @@ def main():
 
     # Links
     urls = soup.find_all('URL')#.text.strip().split()
-    out['links'] = [x.text for x in urls]
+    out['links'] = process_urls(urls, geo_id)
     # Find geo spatial extent
     out['geospatial'] = find_string(soup, 'EX_GeographicBoundingBox', multiple=True)
-    out['time_period'] = find_string(soup, 'TimePeriod', multiple=True)
+    out['time_coverage'] = find_string(soup, 'TimePeriod', multiple=True)
     # relevant dates
     # some date elements have "date time type", in others date and time are joined
     # string is split and last "bit" is the type, other bits are joined but only
@@ -92,25 +123,25 @@ def main():
         date = " ".join(bits[:-1])[0:10] 
         dates[dtype] = date 
     out['dates'] = dates
-    out['location'] = 'Direct access to the data is available on the NCI servers:\n' \
-           + f'project: https://my.nci.org.au/mancini/login?next=/mancini/project/{project}\n' \
-           + f'path: {path}'
+    out['location'] = "".join(["<p>Direct access to the data is available on the NCI servers:</p>",
+           f"<p>project: https://my.nci.org.au/mancini/login?next=/mancini/project/{project}</p>",
+           f"<p>path: {path}</p>"])
     if dates['publication'] != "":
         year = dates['publication'][0:4]
     elif dates['creation'] != "":
         year = dates['creation'][0:4]
     else:
         year = 'YYYY'
-    out['citation'] = "Preferred citation:\n" + f"<authors> ({year}): {out['title']} " \
-               f"NCI Australia. (Dataset). https://dx.doi.org/{out['doi']} \n" + \
-               "If accessing from NCI thredds you can also ackwonledge the service:\n" + \
-               "NCI Australia (2021): NCI THREDDS Data Service. NCI Australia. (Service) https://dx.doi.org/10.25914/608bfc062f4c7"
+    out['description'] = process_description(soup, keywords, for_codes)
+    out['citation'] = " ".join(["<p>Preferred citation:</p>", f"<p><authors> ({year}): {out['title']}",
+               f"NCI Australia. (Dataset). https://dx.doi.org/{out['doi']}</p>",
+               "<p>If accessing from NCI thredds you can also ackwnoledge the service:</p>",
+               "<p>NCI Australia (2021): NCI THREDDS Data Service. NCI Australia. (Service)",
+               "https://dx.doi.org/10.25914/608bfc062f4c7</p>"])
 
-    official_record = "Official metadata and access to the data is via the NCI geonetwork record in related identifiers."
-    out['description'] = "\n\n".join( [abstract, official_record, lineage, credit, fformat, classification, update] ) 
 
     with open(f'{geo_id}.json', 'w') as fp:
-        json.dump(out, fp)
+        json.dump([out], fp)
 
 if __name__ == "__main__":
     main()
