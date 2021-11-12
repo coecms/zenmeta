@@ -19,10 +19,10 @@ import requests
 import json
 import logging
 import os
-from bs4 import BeautifulSoup
 import datetime as dt 
+from bs4 import BeautifulSoup
 from os.path import expanduser
-import sys
+from exception import ZenException
 
 
 def config_log():
@@ -102,8 +102,7 @@ def read_json(fname):
         with open(fname, 'r') as f:
             data = json.load(f)
     except:
-        print(f"Check that {fname} exists and it is a proper json file")
-        sys.exit()
+        ZenException(f"Check that {fname} exists and it is a proper json file")
     return data
 
 
@@ -125,8 +124,7 @@ def read_xml(fname):
         with open(fname, 'r') as f:
             data = json.load(f)
     except:
-        print(f"Check that {fname} is a proper json file")
-        sys.exit()
+        ZenException(f"Check that {fname} exists and it is a proper json file")
     return data
 
 
@@ -203,8 +201,8 @@ def get_invenio_drafts(url, token, community_id=None, community=False):
     -------
     drafts : json object
         A list of all the draft record_ids returned by the api query  
-
     """
+    
     # potentially consider this
     #get_drafts(url, token, record_id=None, community_id=None, community=False):
     #if record_id:
@@ -213,8 +211,7 @@ def get_invenio_drafts(url, token, community_id=None, community=False):
     #    url += f"?state='unsubmitted'"
     #    if all:
     if community and community_id is None:
-        print('You need to pass the community_id to retrieve drafts from a community')
-        sys.exit()
+        ZenException('Missing community_id')
 
     headers = {"Content-Type": "application/json"}
     url += f"?state='unsubmitted'"
@@ -222,13 +219,13 @@ def get_invenio_drafts(url, token, community_id=None, community=False):
         url += f"&community={community_id}"
     r = requests.get(url, params={'access_token': token},
                      headers=headers)
-    #print(r.url)
-    #print(r.status_code)
+    log.debug(f"Request status code: {r.status_code}")
+    log.debug(f"Request url: {r.url}")
     drafts = r.json()
     return drafts
 
 
-def remove_record(url, token, record_id, safe):
+def remove_record(url, token, record_id, safe, log):
     """
     """
 
@@ -242,10 +239,10 @@ def remove_record(url, token, record_id, safe):
                 params={'access_token': token},
                 headers=headers)
         if r.status_code == 204:
-            print('Record deleted successfully')
+            log.info("Record deleted successfully")
         else:
-            print(r.status_code)
-            print(r.url)
+            log.info(f"Request status code: {r.status_code}")
+            log.info(f"Request url: {r.url}")
     else:
-        print('Skipping record')
+        log.info("Skipping record")
 

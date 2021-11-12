@@ -19,7 +19,7 @@ import requests
 import json
 from datetime import date
 from os.path import expanduser
-import sys
+from exception import ZenException
 
 
 def set_zenodo(ctx, production):
@@ -77,8 +77,7 @@ def get_zenodo_drafts(url, token, community_id=None, community=False):
     #    url += f"?state='unsubmitted'"
     #    if all:
     if community and community_id is None:
-        print('You need to pass the community_id to retrieve drafts from a community')
-        sys.exit()
+        ZenException('Missing community_id')
 
     headers = {"Content-Type": "application/json"}
     url += f"?state='unsubmitted'"
@@ -86,10 +85,79 @@ def get_zenodo_drafts(url, token, community_id=None, community=False):
         url += f"&community={community_id}"
     r = requests.get(url, params={'access_token': token},
                      headers=headers)
-    #print(r.url)
-    #print(r.status_code)
+    log.debug(f"Request status code: {r.status_code}")
+    log.debug(f"Request url: {r.url}")
     drafts = r.json()
     return drafts
+
+
+def upload_file(bucket_url, token, record_id, fpath):
+    """Upload file to selected record
+
+    Parameters
+    ----------
+    bucket_url : str
+        The url for the file bucket to which upload files
+    token : str
+        The authentication token for the zenodo or sandbox api
+    record_id : str
+        The id for record we want to upload files to
+    fpath : str
+        The path for file to upload
+
+    Returns
+    -------
+    r : requests object
+      The requests response object
+
+    """
+
+    headers = {"Content-Type": "application/octet-stream"}
+    with open(fpath, "rb") as fp:
+        r = requests.put(
+            f"{bucket_url}/{fpath}",
+            data=fp,
+            params={'access_token': token},
+            headers=headers)
+    return r
+
+
+def get_bibtex(token, out, community=False, community_id=None):
+    """Get published records list in selected format
+
+    Parameters
+    ----------
+    token : str
+        The authentication token for the api 
+    out: str
+        Output type, defines the headers to use in the request
+    community : bool, optional 
+        If True then retrieve all the draft records for the community
+        (default False) 
+    community_id : str, optional
+        The community identifier to add to the url. It has to be present if community True
+        (default None)
+
+    Returns
+    output: str/json depending on input 'out'
+        The text/json request response
+    """
+
+    headers_dict = {'biblio': {"Content-Type": "text/x-bibliography"},
+                    'bibtex': {"Content-Type": "application/x-bibtex"},
+                    'json': {"Content-Type": "application/json"}
+                    }
+    test_url='https://sandbox.zenodo.org/api/deposit/depositions'
+    api_url='https://zenodo.org/api/deposit/depositions'
+    r = requests.get(api_url,
+        params={'access_token': token, 'status': 'published',
+                'communities': community_id},
+                headers=headers[out])
+    if out == 'json':
+        output = r.json
+    else:
+        output = r.text
+    return output
 
 
 def process_author(author):
@@ -106,11 +174,15 @@ def process_author(author):
         A modified version of the author dictionary following the api requirements
     """
 
-    try:
-        firstname, surname = author['name'].split()
-        author['name'] = f"{surname}, {firstname}" 
-    except:
-        print(f"Could not process name {author['name']} because there are more than 1 firstname or surname")
+    bits = author['name'].split()
+    firstname = " ".join(bits[:-1])
+    surname = bits[-1]
+    #try:
+    #    firstname, surname = author['name'].split()
+    #    author['name'] = f"{surname}, {firstname}" 
+    #except:
+    #    log.info(f"Could not process name {author['name']} because " +
+    #             "there are more than 1 firstname or surname")
     author['orcid'] = author['orcid'].split("/")[-1]
     author['affiliation'] = ""
     author.pop('email')

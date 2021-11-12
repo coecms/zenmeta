@@ -20,7 +20,8 @@ import json
 import click
 import logging
 import sys
-from util import config_log, post_json, get_token, read_json
+from util import (config_log, post_json, get_token, read_json,
+                  bucket_url)
 from zenodo import set_zenodo, process_zenodo_plan, get_zenodo_drafts
 from invenio import set_invenio, process_invenio_plan
 # if this remain different from zenodo I should move it to invenio.py file
@@ -81,8 +82,8 @@ def meta_args(f):
 
 
 @zen.command()
-@click.option('--input', '-i', 'fname', multiple=False,
-    help="JSON file containing metadata records to upload")
+@click.option('--fname', '-f', multiple=False, help="JSON file " +
+              "containing metadata records to upload")
 @click.pass_context
 def upload_meta(ctx, fname, auth_fname):
     """Upload metadata from a list of records in a json input file
@@ -99,6 +100,7 @@ def upload_meta(ctx, fname, auth_fname):
 
 
     """
+
     token = ctx.obj['token']
     zen_log = ctx.obj['log']
     zen_log.info(f"Uploading metadata from {fname} to {ctx.obj['portal']},"
@@ -122,6 +124,7 @@ def upload_meta(ctx, fname, auth_fname):
         zen_log.debug(f"Request url: {r.url}") 
         zen_log.info(r.status_code) 
     return
+
 
 @zen.command()
 @click.option('--ids', '-i', multiple=True, help="Record ids to remove")
@@ -166,6 +169,35 @@ def delete_records(ctx, ids, drafts):
             r = requests.delete(newurl)
             zen_log.info(r)
             zen_log.debug(r.text)
+
+
+@zen.command()
+@click.option('--id', '-i', 'record_id', multiple=False,
+              help="Id of record to upload files to")
+@click.option('--fname', '-f',  multiple=False, help="Name of text " +
+              "file with paths of files to upload, 1 file x line")
+@click.pass_context
+def upload_files(ctx, record_id, fname):
+    """Upload files to existing record
+    """
+
+    token = ctx.obj['token']
+    zen_log = ctx.obj['log']
+    # get either sandbox or api token to connect
+
+    # get bucket_url for record
+    bucket_url = get_bucket(ctx.obj['url'], token, record_id)
+
+    #read file paths from file
+    with open(fname) as f:
+        file_paths = f.readlines()
+
+    # upload all files to record, one by one
+    for f in file_paths:
+        zen_log.info(f"Uploading {f} ...")
+        f = f.replace('\n','')
+        status = upload_file(bucket_url, token, record_id, f)
+        zen_log.info(f"Request status: {status}")
 
 
 if __name__ == '__main__':

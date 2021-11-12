@@ -270,35 +270,3 @@ def process_invenio_plan(plan):
     final['access'] = {'record': "public", 'files': "public", 'status': "metadata-only",
                        'embargo': {'active': False, 'reason': None} }
     return final
-
-def main():
-    draft_upload = '/records' # POST
-# 'Content-Type: application/json'
-
-    get_record = '/records/{id}' # GET
-    get_records = '/records' # GET
-    get_record_user = '/user/records' # GET
-    delete_draft = '/records/{id}/draft' # DELETE
-    list_drafts_files = '/records/{id}/draft/files' # GET
-    draft_files_upload = '/records/{id}/draft/files' # POST
-
-    # read geonetwork record exported as json
-    fname = sys.argv[1]
-    token_main = 'L18nuuM1LrdF8mB5E7FEZ1tHfmMPUKhfN0lkD0FNgOJbiLACssXREyTQnfvW'
-    token_test = 'lxT5lQJtSfkdTZUviTjAiXAoNHhyzIQ76Zogn3SmV6asQrMI4wZCn5otOJZR'
-    process = True
-    main = False
-    if main:
-        url = url_main
-        token = token_main
-    else:
-        url = url_test
-        token = token_test
-    data = read_json(fname)
-    for plan in data:
-        if process:
-            record = process_invenio_plan(plan)
-        else:
-            record = plan
-        r = post_json(url+draft_upload, token, record)
-        print(r.status_code)
