@@ -17,30 +17,68 @@
 
 import requests
 import json
+import logging
+import os
 from bs4 import BeautifulSoup
-from datetime import date
+import datetime as dt 
 from os.path import expanduser
 import sys
 
-def get_token(sandbox=False):
-    """ Read api authentication token for zenodo or sandbox 
+
+def config_log():
+    """Configure log file to keep track of activity"""
+
+    # start a logger
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    logger = logging.getLogger('zen_log')
+    # set a formatter to manage the output format of our handler
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+                                  "%Y-%m-%d H:%M")
+    # set the level for the logger, has to be logging.LEVEL not a string
+    # until we do so cleflog doesn't have a level and inherits the root
+    # logger level:WARNING
+    logger.setLevel(logging.INFO)
+
+    # add a handler to send WARNING level messages to console
+    clog = logging.StreamHandler()
+    clog.setLevel(logging.WARNING)
+    logger.addHandler(clog)
+
+    # add a handler to send DEBUG/INFO level messages to file
+    # use DEBUG level for file handler, if main log level is INFO
+    # only INFO messages will pass has this filter is applied first
+    logname = expanduser(f'~/zenmeta_log.txt')
+
+    flog = logging.FileHandler(logname)
+    flog.setLevel(logging.DEBUG)
+    flog.setFormatter(formatter)
+    logger.addHandler(flog)
+
+    # return the logger object
+    return logger
+
+
+def get_token(portal, production=False):
+    """Read api authentication token for production/test api
         
     Parameters
     ----------
-    sandox : bool, optional
-        If True read and return the sandbox token (default is
-        False)
+    portal: str
+        The name of portal to access: zenodo/invenio
+    production: bool, optional
+        If True read and return the production token (default is False)
 
     Returns
     -------
     token : str
-        The authentication token for the zenodo or sandbox api
+        The authentication token for the selected api
     """
 
-    if sandbox:
-        fname = expanduser('~/.sandbox')
+    if production:
+        fname = expanduser(f'~/.{portal}_production')
     else:
-        fname = expanduser('~/.zenodo')
+        fname = expanduser(f'~/.{portal}_test')
     with open(fname,'r') as f:
          token=f.readline().replace("\n","")
     return token
@@ -92,7 +130,7 @@ def read_xml(fname):
     return data
 
 
-def post_json(url, token, data):
+def post_json(url, token, data, log):
     """ Post data to a json file
         
     Parameters
@@ -110,12 +148,13 @@ def post_json(url, token, data):
       The requests response object
     """
 
+    log.debug(f"Post request url: {url}")
     headers = {"Content-Type": "application/json"}
     r = requests.post(url,
             params={'access_token': token}, json=data,
             headers=headers)
     if r.status_code in  [400, 403, 500]:
-        print(r.text)
+        log.info(r.text)
     return r
 
 
@@ -144,7 +183,7 @@ def get_bucket(url, token, record_id):
     return r.json()["links"]["bucket"]
 
 
-def get_drafts(url, token, community_id=None, community=False):
+def get_invenio_drafts(url, token, community_id=None, community=False):
     """Get a list of yours or all drafts records for a specific community
 
     Parameters
@@ -189,107 +228,24 @@ def get_drafts(url, token, community_id=None, community=False):
     return drafts
 
 
-def process_author(author):
-    """ Create a author dictionary following the api requirements 
-        
-    Parameters
-    ----------
-    author : dict 
-        The author details 
-
-    Returns
-    -------
-    author : dict
-        A modified version of the author dictionary following the api requirements
+def remove_record(url, token, record_id, safe):
+    """
     """
 
-    try:
-        firstname, surname = author['name'].split()
-        author['name'] = f"{surname}, {firstname}" 
-    except:
-        print(f"Could not process name {author['name']} because there are more than 1 firstname or surname")
-    author['orcid'] = author['orcid'].split("/")[-1]
-    author['affiliation'] = ""
-    author.pop('email')
-    return author
-
-
-def process_license(license):
-    """If license is Creative Common return the zenodo style string
-       else return license as in plan 
-        
-    Parameters
-    ----------
-    license : dict 
-        A string defining the license
-
-    Returns
-    -------
-    zlicense : dict
-        A modified version of the license dictionary following the api requirements
-    """
-
-    # not doing yet what it claims
-    ind = license.find('Attribution')
-    if ind == -1:
-         print('check license for this record')
-         zlicense = {'id': 'cc-by-4.0'}
+    headers = {"Content-Type": "application/json"}
+    # if safe mode ask for confirmation before deleting
+    answer = 'Y'
+    if safe:
+        answer = input(f"Are you sure you want to delete {record_id}? (Y/N)")
+    if answer == 'Y':
+        r = requests.delete(url+ f"/{record_id}",
+                params={'access_token': token},
+                headers=headers)
+        if r.status_code == 204:
+            print('Record deleted successfully')
+        else:
+            print(r.status_code)
+            print(r.url)
     else:
-        zlicense = {'id': license[0:ind].strip().replace(' ','-').lower() + '-4.0'}
-    return zlicense
+        print('Skipping record')
 
-
-def process_related_id(plan):
-    """Add plan records and other references as references
-    """
-    rids = []
-    relationship = {'geonetwork': 'isReferencedBy', 'rda': 'isAlternateIdentifier',
-                      'related': 'describes'}
-    for k in ['geonetwork','rda']:
-        if any(x in plan[k] for x in ['http://', 'https://']):
-            rids.append({'identifier': plan[k], 'relation': relationship[k]}) 
-    for rel in plan['related']:
-        if any(x in rel for x in ['http://', 'https://']):
-            rids.append({'identifier': rel, 'relation': relationship['related']}) 
-    return rids
-
-
-def process_keywords(keywords):
-    """Add plan records and other references as references
-    """
-    keys = keywords.split(",")
-    return keys
-
-
-def process_plan(plan, community_id):
-    """
-    """
-    global authors
-    metadata = {}
-    if plan['author']['name'] in authors.keys():
-        metadata['creators'] = authors[plan['author']['name']]
-    else:
-        metadata['creators'] = [process_author(plan['author'])]
-        authors[plan['author']['name']] = metadata['creators']
-    metadata['license'] = process_license(plan['license'])
-    metadata['related_identifiers'] = process_related_id(plan)
-    if 'keywords' in metadata.keys():
-        metadata['keywords'] = process_keywords(plan['keywords'])
-    metadata['notes'] = 'Preferred citation:\n' + plan['citation'] + \
-                       "\n\nAccess to the data is via the NCI geonetwork record in related identifiers, details are also provided in the readme file."
-    #metadata['doi'] = '/'.join(plan['doi'].split('/')[-2:])
-    metadata['title'] = plan['title']
-    metadata['version'] = plan['version'] 
-    metadata['description'] = plan['description']
-
-    metadata['upload_type'] = 'dataset'
-    metadata['language'] = 'eng'
-    metadata['access_right'] = 'open'
-    metadata['communities'] = [{'identifier': community_id}]
-    #metadata['publication_date'] = date.today().strftime("%Y-%m-%d"),
-    final = {}
-    final['metadata'] = metadata
-    final['modified'] = date.today().strftime("%Y-%m-%d")
-    final['state'] = 'inprogress'
-    final['submitted'] = False
-    return final 

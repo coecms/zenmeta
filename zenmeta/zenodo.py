@@ -20,7 +20,77 @@ import json
 from datetime import date
 from os.path import expanduser
 import sys
-from .util import post_json, get_token, read_json
+
+
+def set_zenodo(ctx, production):
+    """Add Zenodo details: api urls, communities, to context object
+
+    Parameters
+    ----------
+    ctx: dict
+        Click context obj to pass arguments onto sub-commands
+    production: bool
+        If True using production api, if False using sandbox
+
+    Returns
+    -------
+    ctx: dict
+        Click context obj to pass arguments onto sub-commands
+    """
+
+    if production:
+        ctx.obj['url'] = 'https://zenodo.org/api/deposit/depositions'
+        ctx.obj['community_id'] = 'arc-coe-clex-data'
+    else:
+        ctx.obj['url'] = 'https://sandbox.zenodo.org/api/deposit/depositions'
+        ctx.obj['community_id'] = 'clex-data'
+    return ctx
+
+
+def get_zenodo_drafts(url, token, community_id=None, community=False):
+    """Get a list of yours or all drafts records for a specific community
+
+    Parameters
+    ----------
+    url : str
+        The url address to post to 
+    token : str
+        The authentication token for the api 
+    community : bool, optional 
+        If True then retrieve all the draft records for the community
+        (default False) 
+    community_id : str, optional
+        The community identifier to add to the url. It has to be present if community True
+        (default None)
+
+    Returns
+    -------
+    drafts : json object
+        A list of all the draft record_ids returned by the api query  
+
+    """
+    # potentially consider this
+    #get_drafts(url, token, record_id=None, community_id=None, community=False):
+    #if record_id:
+    #    url += f"${record_id}"
+    #else:
+    #    url += f"?state='unsubmitted'"
+    #    if all:
+    if community and community_id is None:
+        print('You need to pass the community_id to retrieve drafts from a community')
+        sys.exit()
+
+    headers = {"Content-Type": "application/json"}
+    url += f"?state='unsubmitted'"
+    if community:
+        url += f"&community={community_id}"
+    r = requests.get(url, params={'access_token': token},
+                     headers=headers)
+    #print(r.url)
+    #print(r.status_code)
+    drafts = r.json()
+    return drafts
+
 
 def process_author(author):
     """ Create a author dictionary following the api requirements 
@@ -94,7 +164,7 @@ def process_keywords(keywords):
     return keys
 
 
-def process_plan(plan, community_id):
+def process_zenodo_plan(plan, community_id):
     """
     """
     global authors
@@ -127,36 +197,27 @@ def process_plan(plan, community_id):
     final['submitted'] = False
     return final 
 
-def main():
+def upload_meta(ctx, fname, auth_fname):
 
     # define urls, input file and if loading to sandbox or production
     global authors
     # read a list of already processed authors from file, if new authors are found this gets updated at end of process
-    authors = read_json('authors.json') 
-    url='https://sandbox.zenodo.org/api/deposit/depositions'
-    community_id = 'clex-data'
-    sandbox = True
-    fname = sys.argv[1]
-    if len(sys.argv) == 3:
-        if sys.argv[2] == 'production':
-            sandbox = False
-            url='https://zenodo.org/api/deposit/depositions'
-            community_id = 'arc-coe-clex-data'
+    if auth_fname:
+        authors = read_json(auth_fname)
 
     # get either sandbox or api token to connect
-    token = get_token(sandbox)
+    token = get_token(ctx['production'])
 
     # read data from input json file and process plans in file
     data = read_json(fname)
     # process data for each plan and post records returned by process_plan()
     for plan in data:
-        record = process_plan(plan, community_id)
+        record = process_zenodo_plan(plan, ctx['community_id'])
         print(plan['metadata']['title'])
-        r = post_json(url, token, record)
+        r = post_json(ctx['url'], token, record)
         print(r.status_code)
     # optional dumping authors list
     with open('latest_authors.json', 'w') as fp:
         json.dump(authors, fp)
+    return
 
-if __name__ == "__main__":
-    main()

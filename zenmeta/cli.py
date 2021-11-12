@@ -19,10 +19,12 @@ import requests
 import json
 import click
 import logging
-from datetime import date
-from os.path import expanduser
 import sys
-from util import post_json, get_token, read_json
+from util import config_log, post_json, get_token, read_json
+from zenodo import set_zenodo, process_zenodo_plan, get_zenodo_drafts
+from invenio import set_invenio, process_invenio_plan
+# if this remain different from zenodo I should move it to invenio.py file
+from util import get_invenio_drafts
 #from .exception import ZenException
 
 def zen_catch():
@@ -37,140 +39,39 @@ def zen_catch():
 
 
 @click.group()
-@click.option('--sandbox', 'sanbox', is_flag=True, default=False,
-               help="access the sandbox instead of zenodo")
+@click.option('--zenodo', 'portal', is_flag=True, default=False, flag_value='zenodo',
+        help="To interact with Zenodo, instead of default Invenio")
+@click.option('--production', 'production', is_flag=True, default=False,
+               help="access to production site instead of test environment")
 @click.option('-c/--community', 'community', default=False,
                help="returns only local files matching arguments in local database")
 @click.option('--debug', is_flag=True, default=False,
                help="Show debug info")
 @click.pass_context
-def zen(ctx, sandbox, community, debug):
+def zen(ctx, portal, production, community, debug):
     ctx.obj={}
-    ctx.obj['log'] = config_log()
-    # set up a config depending on sandbox/api
-    ctx.obj['sandbox'] = sandbox
-    if sandbox is False:
-        ctx.obj['url'] = 'https://zenodo.org/api/deposit/depositions'
-        ctx.obj['community_id'] = 'arc-coe-clex-data'
+    if portal is None:
+        ctx.obj['portal'] = 'invenio' 
+        ctx = set_invenio(ctx, production)
     else:
-        ctx.obj['url'] = 'https://sandbox.zenodo.org/api/deposit/depositions'
-        ctx.obj['community_id'] = 'clex-data'
+        ctx.obj['portal'] = portal 
+        # can only be zenodo currently could chnage in future
+        ctx = set_zenodo(ctx, production)
+    ctx.obj['log'] = config_log()
+    # set up a config depending on portal and production values
+    ctx.obj['production'] = production
+    # get either sandbox or api token to connect
+    ctx.obj['token'] = get_token(ctx.obj['portal'], ctx.obj['production'])
 
     if debug:
-        debug_logger = logging.getLogger('clef_debug')
-        debug_logger.setLevel(logging.DEBUG)
+        ctx.obj['log'].setLevel(logging.DEBUG)
+    ctx.obj['log'].debug(f"Token: {ctx.obj['token']}") 
 
-def process_author(author):
-    """ Create a author dictionary following the api requirements 
-        
-    Parameters
-    ----------
-    author : dict 
-        The author details 
-
-    Returns
-    -------
-    author : dict
-        A modified version of the author dictionary following the api requirements
-    """
-
-    try:
-        firstname, surname = author['name'].split()
-        author['name'] = f"{surname}, {firstname}" 
-    except:
-        print(f"Could not process name {author['name']} because there are more than 1 firstname or surname")
-    author['orcid'] = author['orcid'].split("/")[-1]
-    author['affiliation'] = ""
-    author.pop('email')
-    return author
-
-
-def process_license(license):
-    """If license is Creative Common return the zenodo style string
-       else return license as in plan 
-        
-    Parameters
-    ----------
-    license : dict 
-        A string defining the license
-
-    Returns
-    -------
-    zlicense : dict
-        A modified version of the license dictionary following the api requirements
-    """
-
-    # not doing yet what it claims
-    ind = license.find('Attribution')
-    if ind == -1:
-         print('check license for this record')
-         zlicense = {'id': 'cc-by-4.0'}
-    else:
-        zlicense = {'id': license[0:ind].strip().replace(' ','-').lower() + '-4.0'}
-    return zlicense
-
-
-def process_related_id(plan):
-    """Add plan records and other references as references
-    """
-    rids = []
-    relationship = {'geonetwork': 'isReferencedBy', 'rda': 'isAlternateIdentifier',
-                      'related': 'describes'}
-    for k in ['geonetwork','rda']:
-        if any(x in plan[k] for x in ['http://', 'https://']):
-            rids.append({'identifier': plan[k], 'relation': relationship[k]}) 
-    for rel in plan['related']:
-        if any(x in rel for x in ['http://', 'https://']):
-            rids.append({'identifier': rel, 'relation': relationship['related']}) 
-    return rids
-
-
-def process_keywords(keywords):
-    """Add plan records and other references as references
-    """
-    keys = keywords.split(",")
-    return keys
-
-
-def process_plan(plan, community_id):
-    """
-    """
-    global authors
-    metadata = {}
-    if plan['author']['name'] in authors.keys():
-        metadata['creators'] = authors[plan['author']['name']]
-    else:
-        metadata['creators'] = [process_author(plan['author'])]
-        authors[plan['author']['name']] = metadata['creators']
-    metadata['license'] = process_license(plan['license'])
-    metadata['related_identifiers'] = process_related_id(plan)
-    if 'keywords' in metadata.keys():
-        metadata['keywords'] = process_keywords(plan['keywords'])
-    metadata['notes'] = 'Preferred citation:\n' + plan['citation'] + \
-                       "\n\nAccess to the data is via the NCI geonetwork record in related identifiers, details are also provided in the readme file."
-    #metadata['doi'] = '/'.join(plan['doi'].split('/')[-2:])
-    metadata['title'] = plan['title']
-    metadata['version'] = plan['version'] 
-    metadata['description'] = plan['description']
-
-    metadata['upload_type'] = 'dataset'
-    metadata['language'] = 'eng'
-    metadata['access_right'] = 'open'
-    metadata['communities'] = [{'identifier': community_id}]
-    #metadata['publication_date'] = date.today().strftime("%Y-%m-%d"),
-    final = {}
-    final['metadata'] = metadata
-    final['modified'] = date.today().strftime("%Y-%m-%d")
-    final['state'] = 'inprogress'
-    final['submitted'] = False
-    return final 
 
 def meta_args(f):
     """Define upload_meta arguments
     """
     constraints = [
-        click.option('--input', '-i', 'fname', multiple=False,
-                      help="JSON file containing metadata records to upload"),
         click.option('--authors', 'auth_fname', multiple=False, default='authors.json',
                       help="Optional json file containing a list of authors already in accepted format"),
         ]
@@ -178,29 +79,94 @@ def meta_args(f):
         f = c(f)
     return f
 
+
 @zen.command()
-@meta_args
+@click.option('--input', '-i', 'fname', multiple=False,
+    help="JSON file containing metadata records to upload")
 @click.pass_context
 def upload_meta(ctx, fname, auth_fname):
+    """Upload metadata from a list of records in a json input file
 
-    # define urls, input file and if loading to sandbox or production
-    global authors
-    # read a list of already processed authors from file, if new authors are found this gets updated at end of process
-    if auth_fname:
-        authors = read_json(auth_fname) 
+    Parameters
+    ----------
+    ctx: dict
+        Click context obj including api information 
+    fname: str
+        Input json filename containing records to upload
 
-    # get either sandbox or api token to connect
-    token = get_token(ctx['sandbox'])
+    Returns
+    -------
+
+
+    """
+    token = ctx.obj['token']
+    zen_log = ctx.obj['log']
+    zen_log.info(f"Uploading metadata from {fname} to {ctx.obj['portal']},"
+                 + f" production: {ctx.obj['production']}")
+
 
     # read data from input json file and process plans in file
     data = read_json(fname)
     # process data for each plan and post records returned by process_plan()
     for plan in data:
-        record = process_plan(plan, ctx['community_id'])
-        print(plan['metadata']['title'])
-        r = post_json(ctx['url'], token, record)
-        print(r.status_code)
-    # optional dumping authors list
-    with open('latest_authors.json', 'w') as fp:
-        json.dump(authors, fp)
+        if ctx.obj['portal'] == 'zenodo':
+            zen_log.info(plan['metadata']['title'])
+            record = process_zenodo_plan(plan, ctx.obj['community_id'])
+            draft_upload = ''
+        else:
+            zen_log.info(plan['title'])
+            record = process_invenio_plan(plan)
+            draft_upload = '/records'
+        r = post_json(ctx.obj['url']+draft_upload, token, record, zen_log)
+        zen_log.debug(f"Request: {r.request}") 
+        zen_log.debug(f"Request url: {r.url}") 
+        zen_log.info(r.status_code) 
     return
+
+@zen.command()
+@click.option('--ids', '-i', multiple=True, help="Record ids to remove")
+@click.option('--drafts',  is_flag=True, default=True, help="If True " +
+    "(default) remove drafts, zenodo published record cannot be removed")
+@click.pass_context
+def delete_records(ctx, ids, drafts):
+    """Delete drafts records based on their ids
+
+    If a list or record ids is not passed then delete all drafts record
+
+    """
+
+    # still to do:
+    # create a custom function for invenio to remove record
+    # if possible we should just have one in util for both api
+    # same for get_drafts 
+    # add safe parameter
+    # add drafts/published option where possible currently only drafts are selected
+    token = ctx.obj['token']
+    zen_log = ctx.obj['log']
+    if len(ids) == 0:
+        if ctx.obj['portal'] == 'zenodo':
+            records = get_zenodo_drafts(url, token, community_id=community_id, community=community)
+            # double check state is correct as query seemed to ignore this filter
+            ids = [x['id'] for x in records if x['state'] == 'unsubmitted']
+        else:
+            records = get_invenio_drafts(url+get_user_records, token)
+            ids = [x['id'] for x in records]
+        zen_log.debug(f'{ids}')
+
+    zen_log.info(f"Removing records {ids} from {ctx.obj['portal']},"
+                 + f" production: {ctx.obj['production']}")
+    if ctx.obj['portal'] == 'zenodo':
+        safe = True
+        for record_id in ids:
+            status = remove_zenodo_record(ctx.obj['url'], token, record_id, safe)
+    else:
+        for recid in ids:
+            newurl = ctx.obj['url'] + f'/records/{recid}/draft' + f'?access_token={token}'
+            zen_log.debug(newurl)
+            r = requests.delete(newurl)
+            zen_log.info(r)
+            zen_log.debug(r.text)
+
+
+if __name__ == '__main__':
+    zen()
