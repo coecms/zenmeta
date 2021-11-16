@@ -40,11 +40,11 @@ def set_invenio(ctx, production):
     """
 
     if production:
-        ctx.obj['url'] = 'https://oneclimate.dmponline.cloud.edu.au/api'
-        ctx.obj['community_id'] = ''
+        base_url = 'https://oneclimate.dmponline.cloud.edu.au/api'
     else:
-        ctx.obj['url'] = 'https://test.dmponline.cloud.edu.au/api'
-        ctx.obj['community_id'] = ''
+        base_url = 'https://test.dmponline.cloud.edu.au/api'
+    ctx.obj['url'] = f'{base_url}/records'
+    ctx.obj['communities'] = f'{base_url}/communities'
     return ctx
 
 

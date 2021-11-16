@@ -39,56 +39,15 @@ def set_zenodo(ctx, production):
     """
 
     if production:
-        ctx.obj['url'] = 'https://zenodo.org/api/deposit/depositions'
-        ctx.obj['community_id'] = 'arc-coe-clex-data'
+        base_url = 'https://zenodo.org/api'
     else:
-        ctx.obj['url'] = 'https://sandbox.zenodo.org/api/deposit/depositions'
-        ctx.obj['community_id'] = 'clex-data'
+        base_url = 'https://sandbox.zenodo.org/api'
+    # removing this for the moment as this doesn't filter based on user
+    #can lead to list all the zenodo if used without
+    ctx.obj['cite'] = f'{base_url}/records'
+    ctx.obj['url'] = f'{base_url}/deposit/depositions'
+    ctx.obj['community'] = '&community='
     return ctx
-
-
-def get_zenodo_drafts(url, token, community_id=None, community=False):
-    """Get a list of yours or all drafts records for a specific community
-
-    Parameters
-    ----------
-    url : str
-        The url address to post to 
-    token : str
-        The authentication token for the api 
-    community : bool, optional 
-        If True then retrieve all the draft records for the community
-        (default False) 
-    community_id : str, optional
-        The community identifier to add to the url. It has to be present if community True
-        (default None)
-
-    Returns
-    -------
-    drafts : json object
-        A list of all the draft record_ids returned by the api query  
-
-    """
-    # potentially consider this
-    #get_drafts(url, token, record_id=None, community_id=None, community=False):
-    #if record_id:
-    #    url += f"${record_id}"
-    #else:
-    #    url += f"?state='unsubmitted'"
-    #    if all:
-    if community and community_id is None:
-        ZenException('Missing community_id')
-
-    headers = {"Content-Type": "application/json"}
-    url += f"?state='unsubmitted'"
-    if community:
-        url += f"&community={community_id}"
-    r = requests.get(url, params={'access_token': token},
-                     headers=headers)
-    log.debug(f"Request status code: {r.status_code}")
-    log.debug(f"Request url: {r.url}")
-    drafts = r.json()
-    return drafts
 
 
 def upload_file(bucket_url, token, record_id, fpath):
@@ -122,7 +81,7 @@ def upload_file(bucket_url, token, record_id, fpath):
     return r
 
 
-def get_bibtex(token, out, community=False, community_id=None):
+def get_bibtex(token, out, community_id=""):
     """Get published records list in selected format
 
     Parameters

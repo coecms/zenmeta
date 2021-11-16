@@ -84,6 +84,18 @@ def get_token(portal, production=False):
     return token
 
 
+def output_mode(ctx, records, mode, user=False, draft=False):
+    if ctx.obj['portal'] == "invenio":
+        id_label = 'id'
+        if user is False:
+            records = records['hits']['hits']
+    else:
+        id_label = 'record_id'
+    if mode == 'ids':
+        records = [x[id_label] for x in records]
+    return records 
+
+
 def read_json(fname):
     """ Read a json file and return content 
         
@@ -181,62 +193,113 @@ def get_bucket(url, token, record_id):
     return r.json()["links"]["bucket"]
 
 
-def get_invenio_drafts(url, token, community_id=None, community=False):
+def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
     """Get a list of yours or all drafts records for a specific community
 
     Parameters
     ----------
-    url : str
-        The url address to post to 
-    token : str
-        The authentication token for the api 
-    community : bool, optional 
-        If True then retrieve all the draft records for the community
-        (default False) 
-    community_id : str, optional
-        The community identifier to add to the url. It has to be present if community True
+    ctx : Click Context obj
+        Including base url and cite url, community_id, portal and token info
+    record_id : str, optional
+        The record identifier if present retrieve only that record
         (default None)
+    user : bool, optional 
+        If True then retrieve all records for the user
+        (default False) 
+    draft : bool, optional 
+        If True then retrieve only draft records 
+        (default False) 
+    mode : str, optional 
+        Define the kind of information to retrieve, default is complete records 
+        (default='json')
 
     Returns
     -------
-    drafts : json object
+    records : json object
         A list of all the draft record_ids returned by the api query  
     """
     
-    # potentially consider this
-    #get_drafts(url, token, record_id=None, community_id=None, community=False):
-    #if record_id:
-    #    url += f"${record_id}"
-    #else:
-    #    url += f"?state='unsubmitted'"
-    #    if all:
-    if community and community_id is None:
-        ZenException('Missing community_id')
+    # Set headers depending on expected output
+    headers = {'biblio': {"Accept": "text/x-bibliography"},
+               'bibtex': {"Accept": "application/x-bibtex"},
+               'json': {"Content-Type": "application/json"},
+               'ids': {"Content-Type": "application/json"},
+               'datacite-json': {"Content-Type": "application/json"},
+               'csl': {"Content-Type": "application/json"},
+               'zenodo': {"Content-Type": "vnd.zenodo.v1+json"},
+               'marc-xml': {"Content-Type": "application/marcxml+xml"},
+               'datacite-xml': {"Content-Type": "application/x-datacite+xml"},
+               'dublin-core': {"Content-Type": "application/x-dc+xml"}
+              }
+    # Build request url based on:
+    # if record_id is passed retireve a specific record
+    # elif user is passer get all record for that user
+    # elif community is passed get all record for community
+    # else get all record
+    # if draft is True get drafts otherwise get published records
+    # only the user query or a specific record return drafts
+    # NB community currently works only for zenodo
+    if mode in ['ids', 'zenodo', 'json']:
+        url = ctx.obj['url']
+    else:
+        url = ctx.obj['cite']
+        if (ctx.obj['portal'] == "zenodo" and user is False
+            and ctx.obj['community_id'] == ""):
+            raise ZenException("This would retrieve all records in zenodo!!\n"+
+                    "Select a community_id or user option to limit query")
+    params = {'access_token': ctx.obj['token']}
+    if record_id:
+        url = url + f"/${record_id}"
+    elif user:
+        url = url.replace("/records","/user/records")
+    elif ctx.obj['community_id'] != "":
+        params['community'] = f"{ctx.obj['community_id']}"
+    if draft:
+        if record_id:
+            url = url + "/draft"
+        elif user:
+        #elif ctx.obj['portal'] == "invenio":
+            #url = url + f"?state='unsubmitted'"
+            #url = url + f"?q=is_published:false"
+            params['q'] = "is_published:false"
+        elif ctx.obj['portal'] == "zenodo":
+            #params['submitted'] = False
+            params['status'] = "draft"
+            #url = url + f"?q=submitted:False"
 
-    headers = {"Content-Type": "application/json"}
-    url += f"?state='unsubmitted'"
-    if community:
-        url += f"&community={community_id}"
-    r = requests.get(url, params={'access_token': token},
-                     headers=headers)
-    log.debug(f"Request status code: {r.status_code}")
-    log.debug(f"Request url: {r.url}")
-    drafts = r.json()
-    return drafts
+    r = requests.get(url, params=params,
+                     headers=headers[mode])
+    ctx.obj['log'].debug(f"{headers[mode]}")
+    ctx.obj['log'].debug(f"{params}")
+    ctx.obj['log'].debug(f"Request status code: {r.status_code}")
+    ctx.obj['log'].debug(f"Request url: {r.url}")
+    if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json', 'ids']:
+        output = r.json()
+    else:
+        output = r.text
+        print(output)
+    return output
+
+# https://zenodo.org/oai2d?verb=ListRecords&metadataPrefix=oai_datacite
+# for communities
+# https://zenodo.org/oai2d?verb=ListRecords&metadataPrefix=oai_datacite&set=user-cfa
 
 
-def remove_record(url, token, record_id, safe, log):
+def remove_record(ctx, record_id, safe):
     """
     """
 
     headers = {"Content-Type": "application/json"}
     # if safe mode ask for confirmation before deleting
     answer = 'Y'
+    url = ctx.obj['url']+ f"/{record_id}"
+    if ctx.obj['portal'] == "invenio":
+        url = url + "/draft"
     if safe:
         answer = input(f"Are you sure you want to delete {record_id}? (Y/N)")
     if answer == 'Y':
-        r = requests.delete(url+ f"/{record_id}",
-                params={'access_token': token},
+        r = requests.delete(ctx.obj['url']+ f"/{record_id}",
+                params={'access_token': ctx.obj['token']},
                 headers=headers)
         if r.status_code == 204:
             log.info("Record deleted successfully")
@@ -245,4 +308,5 @@ def remove_record(url, token, record_id, safe, log):
             log.info(f"Request url: {r.url}")
     else:
         log.info("Skipping record")
+    return r
 

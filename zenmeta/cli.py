@@ -21,11 +21,11 @@ import click
 import logging
 import sys
 from util import (config_log, post_json, get_token, read_json,
-                  bucket_url)
+                  get_bucket, get_records, output_mode)
 from zenodo import set_zenodo, process_zenodo_plan, get_zenodo_drafts
 from invenio import set_invenio, process_invenio_plan
 # if this remain different from zenodo I should move it to invenio.py file
-from util import get_invenio_drafts
+#from util import get_invenio_drafts
 #from .exception import ZenException
 
 def zen_catch():
@@ -42,14 +42,15 @@ def zen_catch():
 @click.group()
 @click.option('--zenodo', 'portal', is_flag=True, default=False, flag_value='zenodo',
         help="To interact with Zenodo, instead of default Invenio")
-@click.option('--production', 'production', is_flag=True, default=False,
+@click.option('--production', '-p', 'production', is_flag=True, default=False,
                help="access to production site instead of test environment")
-@click.option('-c/--community', 'community', default=False,
-               help="returns only local files matching arguments in local database")
+@click.option('--community', '-c', 'community_id', default="",
+               help="Community identifier, if passed query corresponding" +
+                     "community, default is empty str")
 @click.option('--debug', is_flag=True, default=False,
                help="Show debug info")
 @click.pass_context
-def zen(ctx, portal, production, community, debug):
+def zen(ctx, portal, production, community_id, debug):
     ctx.obj={}
     if portal is None:
         ctx.obj['portal'] = 'invenio' 
@@ -61,24 +62,17 @@ def zen(ctx, portal, production, community, debug):
     ctx.obj['log'] = config_log()
     # set up a config depending on portal and production values
     ctx.obj['production'] = production
+    ctx.obj['community_id'] = community_id
     # get either sandbox or api token to connect
     ctx.obj['token'] = get_token(ctx.obj['portal'], ctx.obj['production'])
 
     if debug:
         ctx.obj['log'].setLevel(logging.DEBUG)
     ctx.obj['log'].debug(f"Token: {ctx.obj['token']}") 
-
-
-def meta_args(f):
-    """Define upload_meta arguments
-    """
-    constraints = [
-        click.option('--authors', 'auth_fname', multiple=False, default='authors.json',
-                      help="Optional json file containing a list of authors already in accepted format"),
-        ]
-    for c in reversed(constraints):
-        f = c(f)
-    return f
+    ctx.obj['log'].debug(f"Portal: {ctx.obj['portal']}") 
+    ctx.obj['log'].debug(f"Community: {ctx.obj['community_id']}") 
+    ctx.obj['log'].debug(f"API url: {ctx.obj['url']}") 
+    ctx.obj['log'].debug(f"Production: {ctx.obj['production']}") 
 
 
 @zen.command()
@@ -114,12 +108,10 @@ def upload_meta(ctx, fname, auth_fname):
         if ctx.obj['portal'] == 'zenodo':
             zen_log.info(plan['metadata']['title'])
             record = process_zenodo_plan(plan, ctx.obj['community_id'])
-            draft_upload = ''
         else:
             zen_log.info(plan['title'])
             record = process_invenio_plan(plan)
-            draft_upload = '/records'
-        r = post_json(ctx.obj['url']+draft_upload, token, record, zen_log)
+        r = post_json(ctx.obj['url'], token, record, zen_log)
         zen_log.debug(f"Request: {r.request}") 
         zen_log.debug(f"Request url: {r.url}") 
         zen_log.info(r.status_code) 
@@ -128,10 +120,10 @@ def upload_meta(ctx, fname, auth_fname):
 
 @zen.command()
 @click.option('--ids', '-i', multiple=True, help="Record ids to remove")
-@click.option('--drafts',  is_flag=True, default=True, help="If True " +
+@click.option('--draft',  is_flag=True, default=True, help="If True " +
     "(default) remove drafts, zenodo published record cannot be removed")
 @click.pass_context
-def delete_records(ctx, ids, drafts):
+def delete_records(ctx, ids, draft):
     """Delete drafts records based on their ids
 
     If a list or record ids is not passed then delete all drafts record
@@ -148,27 +140,22 @@ def delete_records(ctx, ids, drafts):
     zen_log = ctx.obj['log']
     if len(ids) == 0:
         if ctx.obj['portal'] == 'zenodo':
-            records = get_zenodo_drafts(url, token, community_id=community_id, community=community)
+            records = get_zenodo_drafts(url, token, 
+                      community_id=ctx.obj['community_id'],
+                      user=user, draft=draft)
             # double check state is correct as query seemed to ignore this filter
             ids = [x['id'] for x in records if x['state'] == 'unsubmitted']
         else:
-            records = get_invenio_drafts(url+get_user_records, token)
+            records = get_invenio_drafts(ctx.obj['url'], token,
+                      user=user, draft=draft)
             ids = [x['id'] for x in records]
         zen_log.debug(f'{ids}')
 
     zen_log.info(f"Removing records {ids} from {ctx.obj['portal']},"
                  + f" production: {ctx.obj['production']}")
-    if ctx.obj['portal'] == 'zenodo':
-        safe = True
-        for record_id in ids:
-            status = remove_zenodo_record(ctx.obj['url'], token, record_id, safe)
-    else:
-        for recid in ids:
-            newurl = ctx.obj['url'] + f'/records/{recid}/draft' + f'?access_token={token}'
-            zen_log.debug(newurl)
-            r = requests.delete(newurl)
-            zen_log.info(r)
-            zen_log.debug(r.text)
+    safe = True
+    for record_id in ids:
+        status = remove_record(ctx, record_id, safe)
 
 
 @zen.command()
@@ -199,6 +186,44 @@ def upload_files(ctx, record_id, fname):
         status = upload_file(bucket_url, token, record_id, f)
         zen_log.info(f"Request status: {status}")
 
+
+@zen.command()
+@click.option('--ids', '-i', multiple=True, help="Record ids to list")
+@click.option('--mode', '-m', multiple=False, type=click.Choice(
+              ['biblio', 'bibtex', 'json', 'ids', 'datacite-json',
+               'csl', 'zenodo', 'marc-xml', 'datacite-xml',
+               'dublin-core']), default='json', help="Output format" )
+@click.option('--user', '-u',  is_flag=True, default=False, help="If True " +
+              "list only user records")
+@click.option('--draft',  is_flag=True, default=False, help="If True " +
+              "list drafts, default is False")
+@click.pass_context
+def list_records(ctx, ids, user, draft, mode):
+    """List records based on input arguments
+    """
+    token = ctx.obj['token']
+    url = ctx.obj['url']
+    zen_log = ctx.obj['log']
+    zen_log.debug(f"Draft is {draft}")
+    zen_log.debug(f"Output mode is {mode}")
+    zen_log.debug(f"User is {user}")
+    # if draft is used with invenio user is automatically True
+    if ctx.obj['portal'] == "invenio" and draft:
+        user = True
+    if len(ids) == 0:
+        #records = get_invenio_drafts(url+'/records', token, user=user,
+        #          community_id=ctx.obj['community_id'], draft=draft,
+        #          log=zen_log)
+        records = get_records(ctx, user=user, draft=draft, mode=mode)
+    else:
+        records = []
+        for recid in ids:
+            records.append( get_records(ctx, record_id = recid, 
+                            user=user, draft=draft, mode=mode) )
+        zen_log.debug(f'{ids}')
+    if mode != 'bibtex':
+        records = output_mode(ctx, records, mode, user=user, draft=draft)  
+    print(records)
 
 if __name__ == '__main__':
     zen()
