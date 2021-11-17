@@ -44,8 +44,8 @@ def set_zenodo(ctx, production):
         base_url = 'https://sandbox.zenodo.org/api'
     # removing this for the moment as this doesn't filter based on user
     #can lead to list all the zenodo if used without
-    ctx.obj['cite'] = f'{base_url}/records'
-    ctx.obj['url'] = f'{base_url}/deposit/depositions'
+    ctx.obj['url'] = f'{base_url}/records'
+    ctx.obj['deposit'] = f'{base_url}/deposit/depositions'
     ctx.obj['community'] = '&community='
     return ctx
 

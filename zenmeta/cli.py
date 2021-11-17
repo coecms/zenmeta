@@ -22,11 +22,10 @@ import logging
 import sys
 from util import (config_log, post_json, get_token, read_json,
                   get_bucket, get_records, output_mode)
-from zenodo import set_zenodo, process_zenodo_plan, get_zenodo_drafts
+from zenodo import set_zenodo, process_zenodo_plan
 from invenio import set_invenio, process_invenio_plan
 # if this remain different from zenodo I should move it to invenio.py file
-#from util import get_invenio_drafts
-#from .exception import ZenException
+from exception import ZenException
 
 def zen_catch():
     debug_logger = logging.getLogger('zen_debug')
@@ -75,12 +74,17 @@ def zen(ctx, portal, production, community_id, debug):
     ctx.obj['log'].debug(f"Production: {ctx.obj['production']}") 
 
 
-@zen.command()
+@zen.command(name='meta')
 @click.option('--fname', '-f', multiple=False, help="JSON file " +
               "containing metadata records to upload")
+@click.option('--version', is_flag=True, default=False,
+               help="Create new version if record already exists")
 @click.pass_context
-def upload_meta(ctx, fname, auth_fname):
-    """Upload metadata from a list of records in a json input file
+def upload_meta(ctx, fname, version):
+    """Upload metadata from a list of records in a json input file.
+
+    If a record exists already is updated, otherwise creates a new one.
+    If "version" option is passed, creates a new version for record.
 
     Parameters
     ----------
@@ -88,11 +92,11 @@ def upload_meta(ctx, fname, auth_fname):
         Click context obj including api information 
     fname: str
         Input json filename containing records to upload
+    version: bool, optional
+        If True create a new version for any existing records in list
 
     Returns
     -------
-
-
     """
 
     token = ctx.obj['token']
@@ -118,7 +122,7 @@ def upload_meta(ctx, fname, auth_fname):
     return
 
 
-@zen.command()
+@zen.command(name='remove')
 @click.option('--ids', '-i', multiple=True, help="Record ids to remove")
 @click.option('--draft',  is_flag=True, default=True, help="If True " +
     "(default) remove drafts, zenodo published record cannot be removed")
@@ -158,7 +162,7 @@ def delete_records(ctx, ids, draft):
         status = remove_record(ctx, record_id, safe)
 
 
-@zen.command()
+@zen.command(name='upload')
 @click.option('--id', '-i', 'record_id', multiple=False,
               help="Id of record to upload files to")
 @click.option('--fname', '-f',  multiple=False, help="Name of text " +
@@ -187,7 +191,7 @@ def upload_files(ctx, record_id, fname):
         zen_log.info(f"Request status: {status}")
 
 
-@zen.command()
+@zen.command(name='list')
 @click.option('--ids', '-i', multiple=True, help="Record ids to list")
 @click.option('--mode', '-m', multiple=False, type=click.Choice(
               ['biblio', 'bibtex', 'json', 'ids', 'datacite-json',
@@ -204,16 +208,13 @@ def list_records(ctx, ids, user, draft, mode):
     token = ctx.obj['token']
     url = ctx.obj['url']
     zen_log = ctx.obj['log']
-    zen_log.debug(f"Draft is {draft}")
-    zen_log.debug(f"Output mode is {mode}")
-    zen_log.debug(f"User is {user}")
     # if draft is used with invenio user is automatically True
     if ctx.obj['portal'] == "invenio" and draft:
         user = True
+    zen_log.debug(f"Draft is {draft}")
+    zen_log.debug(f"Output mode is {mode}")
+    zen_log.debug(f"User is {user}")
     if len(ids) == 0:
-        #records = get_invenio_drafts(url+'/records', token, user=user,
-        #          community_id=ctx.obj['community_id'], draft=draft,
-        #          log=zen_log)
         records = get_records(ctx, user=user, draft=draft, mode=mode)
     else:
         records = []
@@ -221,7 +222,7 @@ def list_records(ctx, ids, user, draft, mode):
             records.append( get_records(ctx, record_id = recid, 
                             user=user, draft=draft, mode=mode) )
         zen_log.debug(f'{ids}')
-    if mode != 'bibtex':
+    if mode not in ['bibtex', 'biblio']:
         records = output_mode(ctx, records, mode, user=user, draft=draft)  
     print(records)
 
