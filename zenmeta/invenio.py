@@ -44,6 +44,7 @@ def set_invenio(ctx, production):
     else:
         base_url = 'https://test.dmponline.cloud.edu.au/api'
     ctx.obj['url'] = f'{base_url}/records'
+    ctx.obj['deposit'] = f'{base_url}/records'
     ctx.obj['communities'] = f'{base_url}/communities'
     return ctx
 

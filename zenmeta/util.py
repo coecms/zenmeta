@@ -87,8 +87,11 @@ def get_token(portal, production=False):
 def output_mode(ctx, records, mode, user=False, draft=False):
     if ctx.obj['portal'] == "invenio":
         id_label = 'id'
-        if user is False:
-            records = records['hits']['hits']
+        #if user is False:
+        records = records['hits']['hits']
+    elif user is True:
+        records = records['hits']['hits']
+        id_label = 'id'
     else:
         id_label = 'record_id'
     if mode == 'ids':
@@ -231,6 +234,8 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
                'datacite-xml': {"Content-Type": "application/x-datacite+xml"},
                'dublin-core': {"Content-Type": "application/x-dc+xml"}
               }
+    # For invenio
+    # {"status": 406, "message": "Invalid 'Accept' header. Expected one of: application/json, application/vnd.inveniordm.v1+json, application/vnd.citationstyles.csl+json, application/vnd.datacite.datacite+json, application/vnd.datacite.datacite+xml, application/x-dc+xml, text/x-bibliography"}
     # Build request url based on:
     # if record_id is passed retireve a specific record
     # elif user is passer get all record for that user
@@ -239,33 +244,28 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
     # if draft is True get drafts otherwise get published records
     # only the user query or a specific record return drafts
     # NB community currently works only for zenodo
-    if mode in ['ids', 'zenodo', 'json']:
+    #if ctx.obj['community_id'] != "" or user is True:
+    if user is True:
         url = ctx.obj['url']
     else:
-        url = ctx.obj['cite']
-        if (ctx.obj['portal'] == "zenodo" and user is False
-            and ctx.obj['community_id'] == ""):
+        url = ctx.obj['deposit']
+        if mode == 'bibtex' and ctx.obj['portal'] == "zenodo":
             raise ZenException("This would retrieve all records in zenodo!!\n"+
                     "Select a community_id or user option to limit query")
     params = {'access_token': ctx.obj['token']}
     if record_id:
         url = url + f"/${record_id}"
-    elif user:
-        url = url.replace("/records","/user/records")
     elif ctx.obj['community_id'] != "":
         params['community'] = f"{ctx.obj['community_id']}"
+    elif ctx.obj['portal'] == "invenio" and user:
+        url = url.replace("/records","/user/records")
     if draft:
         if record_id:
             url = url + "/draft"
-        elif user:
-        #elif ctx.obj['portal'] == "invenio":
-            #url = url + f"?state='unsubmitted'"
-            #url = url + f"?q=is_published:false"
+        elif ctx.obj['portal'] == "invenio" and user:
             params['q'] = "is_published:false"
         elif ctx.obj['portal'] == "zenodo":
-            #params['submitted'] = False
             params['status'] = "draft"
-            #url = url + f"?q=submitted:False"
 
     r = requests.get(url, params=params,
                      headers=headers[mode])
@@ -277,7 +277,7 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
         output = r.json()
     else:
         output = r.text
-        print(output)
+    ctx.obj['log'].debug(f"Type of output returned: {type(output)}")
     return output
 
 # https://zenodo.org/oai2d?verb=ListRecords&metadataPrefix=oai_datacite
