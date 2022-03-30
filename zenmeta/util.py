@@ -293,6 +293,7 @@ def remove_record(ctx, record_id, safe):
     # if safe mode ask for confirmation before deleting
     answer = 'Y'
     url = ctx.obj['url']+ f"/{record_id}"
+    log = ctx.obj['log']
     if ctx.obj['portal'] == "invenio":
         url = url + "/draft"
     if safe:
@@ -308,5 +309,15 @@ def remove_record(ctx, record_id, safe):
             log.info(f"Request url: {r.url}")
     else:
         log.info("Skipping record")
+        r = None
     return r
 
+def convert_for(code08):
+    """Convert ANZSRC FOR codes from 2008 to 2020 classification
+
+    code08: dict
+            dictionary with code and name keys
+    """
+    codes20 = read_json('data/for_map.json')
+    newcodes = codes20[code08['code']]['codes_2020']
+    return newcodes
