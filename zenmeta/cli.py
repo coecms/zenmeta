@@ -21,7 +21,7 @@ import click
 import logging
 import sys
 from util import (config_log, post_json, get_token, read_json,
-                  get_bucket, get_records, output_mode)
+                  get_bucket, get_records, output_mode, remove_record)
 from zenodo import set_zenodo, process_zenodo_plan
 from invenio import set_invenio, process_invenio_plan
 # if this remain different from zenodo I should move it to invenio.py file
