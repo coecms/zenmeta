@@ -25,7 +25,7 @@ def process_urls(urls, geo_id):
     links = []
     for x in urls:
         url = x.text
-        if 'researchdata.edu.au' in url:
+        if any(s in url for s in ['researchdata.edu.au','researchdata.ands.org.au']):
             links.append({'RDA': url})
         elif 'thredds' in url:
             links.append({'TDS': url})
@@ -71,14 +71,18 @@ def get_codes(soup):
     keywords = []
     keys = soup.find_all('keyword')
     # check if there are more FOR codes in keywords
-    for k in keys:
-        key = k.text.strip()
-        if key[0] == "0":
-            bits = key.split()
-            if bits[0] != code:
-                codes.append({'code': [bits[0]], 'name': " ".join(bits[1:])}) 
-        else:
-            keywords.append(key)
+    #print(keys)
+    if len(keys)>=0:
+        for k in keys:
+            key = k.text.strip()
+            if key is True:
+                key = k.text.strip()
+                if key[0] == "0":
+                    bits = key.split()
+                    if bits[0] != code:
+                        codes.append({'code': [bits[0]], 'name': " ".join(bits[1:])}) 
+                else:
+                    keywords.append(key)
     return keywords, codes
 
 
@@ -99,12 +103,9 @@ def get_parties(soup):
             #           'role': role, 'org': False} 
             if person['name'] == person['affiliation']:
                 person['org'] = True
-            people.append(person)
-
-    # as some records present authors twice eliminate identical dictionary from list
-    # convert dictory to tuples, create set of tuple, reconvert remaining tuple to dict
-    people_unique = [dict(t) for t in {tuple(d.items()) for d in people}]
-    return people_unique
+            if person not in people:
+                people.append(person)
+    return people
 
 
 def get_dates(soup):
@@ -122,9 +123,9 @@ def get_dates(soup):
         dtype = bits[-1]
         date = " ".join(bits[:-1])[0:10] 
         dates[dtype] = date 
-    if dates['publication'] != "":
+    if 'publication' in dates.keys() and dates['publication'] != "":
         year = dates['publication'][0:4]
-    elif dates['creation'] != "":
+    elif 'creation' in dates.keys() and dates['creation'] != "":
         year = dates['creation'][0:4]
     else:
         year = 'YYYY'
@@ -160,7 +161,7 @@ def main():
         codes20 = convert_for(c)
         out['for_codes'].extend(codes20)
  
-    out['parties'] = get_parties(soup)# people_unique
+    out['parties'] = get_parties(soup)
 
     out['dates'], year = get_dates(soup)
     out['citation'] = " ".join(["<p>Preferred citation:</p>", f"<p><authors> ({year}): {out['title']}",

@@ -79,7 +79,8 @@ def process_party(party, roles):
             if v['acronym'] == aff:
                 aff_id = v['id']
                 aff = k
-    creator['affiliations'] = [{'id': aff_id, 'name': aff}]
+    if aff_id != "":
+        creator['affiliations'] = [{'id': aff_id, 'name': aff}]
     # assign role based on mapping dictionary
     creator['role'] = roles[party['role']]
     if party['org'] == False:
@@ -225,7 +226,7 @@ def process_links(links):
                     "scheme": "url"} )
             elif k == 'TDS': 
                 related.append( {"identifier": v, "relation_type": {
-                    "id": "documents", "title": {"en": "Documents"} },
+                    "id": "ismetadatafor", "title": {"en": "Is metadata for"} },
                     "resource_type": {"id": "dataset", "title": {"en": "Dataset"}},
                     "scheme": "url"} )
             elif k == 'paper': 
@@ -350,8 +351,8 @@ def process_invenio_plan(plan):
 
     # Related identifiers and identifiers
     metadata['related_identifiers'] = process_links(plan['links'])
-    if plan['doi'] != "":
-        metadata['identifiers'] = [{'identifier': plan['doi'], 'scheme': "doi"}]
+    #if plan['doi'] != "":
+    #    metadata['identifiers'] = [{'identifier': plan['doi'], 'scheme': "doi"}]
 
     # Create subjects based on fformat and for_codes
     metadata['subjects'] = process_subjects(plan['fformat'], plan['for_codes'])
@@ -364,4 +365,7 @@ def process_invenio_plan(plan):
     final['files'] = {'enabled': False, "order": []}
     final['access'] = {'record': "public", 'files': "public", 'status': "metadata-only",
                        'embargo': {'active': False, 'reason': None} }
+    if plan['doi'] != "":
+        final['pids'] = {'doi': {'identifier': plan['doi'], 
+                         'client': 'datacite', 'provider': 'datacite'}}
     return final
