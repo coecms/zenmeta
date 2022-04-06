@@ -166,7 +166,7 @@ def main():
     out['dates'], year = get_dates(soup)
     out['citation'] = " ".join(["<p>Preferred citation:</p>", f"<p><authors> ({year}): {out['title']}",
                f"NCI Australia. (Dataset). https://dx.doi.org/{out['doi']}</p>",
-               "<p>If accessing from NCI thredds you can also ackwnoledge the service:</p>",
+               "<p>If accessing from NCI thredds you can also acknowledge the service:</p>",
                "<p>NCI Australia (2021): NCI THREDDS Data Service. NCI Australia. (Service)",
                "https://dx.doi.org/10.25914/608bfc062f4c7</p>"])
     # Links

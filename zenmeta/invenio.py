@@ -367,5 +367,5 @@ def process_invenio_plan(plan):
                        'embargo': {'active': False, 'reason': None} }
     if plan['doi'] != "":
         final['pids'] = {'doi': {'identifier': plan['doi'], 
-                         'client': 'datacite', 'provider': 'datacite'}}
+                         'client': 'external', 'provider': 'external'}}
     return final
