@@ -178,6 +178,7 @@ def main():
     out['time_coverage'] = find_string(soup, 'TimePeriod', multiple=True)
     # save 2008 version of for_codes in description
     out['description'] = process_description(soup, out['keywords'], for_codes)
+    out['publisher'] = 'NCI Australia'
 
     with open(f'{geo_id}.json', 'w') as fp:
         json.dump([out], fp)

@@ -69,16 +69,20 @@ def process_party(party, roles):
     creator = {}
     # open affiliations vocab to find id for institution
     aff_dict = read_json('data/affiliations.json')
-    aff = party['affiliation']
+    if 'affiliation' in [k for k in party.keys()]:
+        aff = party['affiliation']
     # try to find affiliation name in key dictionary, if not try in 
-    aff_id = ""
-    try:
-        aff_id = aff_dict[aff]['id']
-    except:
-        for k,v in aff_dict.items():
-            if v['acronym'] == aff:
-                aff_id = v['id']
-                aff = k
+        aff_id = ""
+        try:
+            aff_id = aff_dict[aff]['id']
+        except:
+            for k,v in aff_dict.items():
+                if v['acronym'] == aff:
+                    aff_id = v['id']
+                    aff = k
+    else:
+        aff = ""
+        aff_id = ""
     if aff_id != "":
         creator['affiliations'] = [{'id': aff_id, 'name': aff}]
     # assign role based on mapping dictionary
@@ -91,11 +95,13 @@ def process_party(party, roles):
                 'given_name' : firstname,
                 'name' : f"{surname}, {firstname}",
                 'type' : 'personal',
-                #'identifier' : [{'scheme': 'orcid', 'identifier': party['orcid'].split("/")[-1]}]
                 }
+        if 'orcid' in [k for k in party.keys()]:
+            creator['identifiers'] = [{'scheme': 'orcid',
+                                       'identifier': party['orcid']}]
     else:
         creator['person_or_org'] = { 'name': party['name'],
-        'type': "organizational"} 
+                                     'type': "organizational"} 
     return creator 
 
 
@@ -214,7 +220,7 @@ def process_links(links):
     related = []
     for link in links:
         for k,v in link.items():
-            if k == 'geonetwork': 
+            if k in ['geonetwork','DAP']: 
                 related.append( {"identifier": v, "relation_type": {
                     "id": "isderivedfrom", "title": {"en": "Is derived from"} },
                     "resource_type": {"id": "metadata", "title": {"en": "Metadata record"}},
@@ -316,6 +322,7 @@ def process_invenio_plan(plan):
     """
     """
     metadata = {}
+    plan_keys = [k for k in plan.keys()]
 
     # Contributors
     metadata['creators'] , metadata['contributors'] = process_parties(
@@ -356,9 +363,12 @@ def process_invenio_plan(plan):
 
     # Create subjects based on fformat and for_codes
     metadata['subjects'] = process_subjects(plan['fformat'], plan['for_codes'])
-    metadata['resource_type'] = {'id': 'dataset', 'title': "Dataset"}
+    if 'resource_type' not in plan_keys:
+        metadata['resource_type'] = {'id': 'dataset', 'title': "Dataset"}
+    else:
+        metadata['resource_type'] = plan['resource_type']
     metadata['language'] = 'English'
-    metadata['publisher'] = 'NCI Australia'
+    metadata['publisher'] = plan['publisher'] 
     final = {}
     final['metadata'] = metadata
     #final['modified'] = date.today().strftime("%Y-%m-%d")
@@ -367,5 +377,5 @@ def process_invenio_plan(plan):
                        'embargo': {'active': False, 'reason': None} }
     if plan['doi'] != "":
         final['pids'] = {'doi': {'identifier': plan['doi'], 
-                         'client': 'external', 'provider': 'external'}}
+                                 'provider': 'external'}}
     return final

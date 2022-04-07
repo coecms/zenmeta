@@ -318,6 +318,12 @@ def convert_for(code08):
     code08: dict
             dictionary with code and name keys
     """
+    newcodes = []
     codes20 = read_json('data/for_map.json')
-    newcodes = codes20[code08['code']]['codes_2020']
+    if isinstance(code08, int):
+        newcodes = codes20[code08['code']]['codes_2020']
+    else:
+        for k,v in codes20.items():
+            if v['name_2008'] == code08:
+                newcodes = v['codes_2020']
     return newcodes
