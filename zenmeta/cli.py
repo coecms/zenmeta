@@ -20,7 +20,7 @@ import json
 import click
 import logging
 import sys
-from util import (config_log, post_json, get_token, read_json,
+from util import (config_log, post_json, get_token, read_json, write_json,
                   get_bucket, get_records, output_mode, remove_record)
 from zenodo import set_zenodo, process_zenodo_plan
 from invenio import set_invenio, process_invenio_plan
@@ -46,10 +46,13 @@ def zen_catch():
 @click.option('--community', '-c', 'community_id', default="",
                help="Community identifier, if passed query corresponding" +
                      "community, default is empty str")
+@click.option('--token', '-t', 'token', required=False,
+               help="User token, passed to override one configured in "
+                     "~/invenio_<production/test> file")
 @click.option('--debug', is_flag=True, default=False,
                help="Show debug info")
 @click.pass_context
-def zen(ctx, portal, production, community_id, debug):
+def zen(ctx, portal, production, community_id, token, debug):
     ctx.obj={}
     if portal is None:
         ctx.obj['portal'] = 'invenio' 
@@ -63,7 +66,10 @@ def zen(ctx, portal, production, community_id, debug):
     ctx.obj['production'] = production
     ctx.obj['community_id'] = community_id
     # get either sandbox or api token to connect
-    ctx.obj['token'] = get_token(ctx.obj['portal'], ctx.obj['production'])
+    if token:
+        ctx.obj['token'] = token
+    else:
+        ctx.obj['token'] = get_token(ctx.obj['portal'], ctx.obj['production'])
 
     if debug:
         ctx.obj['log'].setLevel(logging.DEBUG)
@@ -79,8 +85,10 @@ def zen(ctx, portal, production, community_id, debug):
               "containing metadata records to upload")
 @click.option('--version', is_flag=True, default=False,
                help="Create new version if record already exists")
+@click.option('--skip', is_flag=True, default=False,
+               help="Skip processing if record comes from backup")
 @click.pass_context
-def upload_meta(ctx, fname, version):
+def upload_meta(ctx, fname, version, skip):
     """Upload metadata from a list of records in a json input file.
 
     If a record exists already is updated, otherwise creates a new one.
@@ -111,10 +119,16 @@ def upload_meta(ctx, fname, version):
     for plan in data:
         if ctx.obj['portal'] == 'zenodo':
             zen_log.info(plan['metadata']['title'])
-            record = process_zenodo_plan(plan, ctx.obj['community_id'])
+            if skip:
+                record = plan
+            else:
+                record = process_zenodo_plan(plan, ctx.obj['community_id'])
         else:
-            zen_log.info(plan['title'])
-            record = process_invenio_plan(plan)
+            if skip:
+                record = plan
+            else:
+                zen_log.info(plan['title'])
+                record = process_invenio_plan(plan)
         r = post_json(ctx.obj['url'], token, record, zen_log)
         zen_log.debug(f"Request: {r.request}") 
         zen_log.debug(f"Request url: {r.url}") 
@@ -224,7 +238,12 @@ def list_records(ctx, ids, user, draft, mode):
         zen_log.debug(f'{ids}')
     if mode not in ['bibtex', 'biblio']:
         records = output_mode(ctx, records, mode, user=user, draft=draft)  
-    print(records)
+    # if mode compatible with json save to file instead of printing
+    if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json', 'ids']:
+        print('Writing output to output.json file')
+        write_json(records)
+    else:
+        print(records)
 
 if __name__ == '__main__':
     zen()

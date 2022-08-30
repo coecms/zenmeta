@@ -23,7 +23,7 @@ def process_description(description, data, for_codes):
     # retrieve all the relevant fields
     extra = ['lineage', 'credit', 'size', 'keywords']
     for k in extra:
-        description += f"<p>{k.capitalize()}: {data[k]} </p>"
+        description += f"<p>{k.capitalize()}: {data.get(k,'')} </p>"
     org_levels = data['organisationalLevels']
     for k in [x for x in org_levels.keys() if x != 'irpHierarchy']:
         description += f"<p>{k.capitalize()}: {org_levels[k]} </p>"
@@ -80,10 +80,9 @@ def get_dates(data):
     Return also year to sue for citation
     """
 
-    dates = {}
-    dates['publication'] = data['published'].split("T")[0]
-    year = dates['publication'][0:4]
-    return dates, year
+    publication_date = data['published'].split("T")[0]
+    year = publication_date[0:4]
+    return publication_date, year
 
 def convert_spatial(spatial):
     """Convert lat lon max and min form degrees, min, seconds to decimal
@@ -114,6 +113,7 @@ def main():
     fname = sys.argv[1]
     data = read_json(fname)
     keys = [k for k in data.keys()]
+    print(keys)
     csiro_id = data['dataCollectionId'] 
 
     # initial output dict
@@ -147,7 +147,7 @@ def main():
  
     out['parties'] = get_parties(data, keys)
 
-    out['dates'], year = get_dates(data)
+    out['publication_date'], year = get_dates(data)
     out['citation'] = " ".join(["<p>Preferred citation:</p>",
                                f"<p>{data['attributionStatement']}</p>"]) 
     extra = ['access', 'accessLevel', 'rights', 'dataRestricted']
@@ -156,7 +156,7 @@ def main():
     if 'contact' in keys:
         out['citation'] += f"<p>Contact: {' - '.join([v for v in data['contact'].values()])} </p>"
     # Links
-    out['links'] = process_urls(data['landingPage'], data['relatedLinks'])
+    out['related_identifiers'] = process_urls(data.get('landingPage'), data.get('relatedLinks',[]))
 
     # Find geo spatial extent
     out['geospatial'] = convert_spatial(data['spatialParameters']) 

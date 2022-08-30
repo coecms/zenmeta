@@ -121,20 +121,42 @@ def read_json(fname):
     return data
 
 
+def write_json(data, fname='output.json'):
+    """Write data to a json file  
+        
+    Parameters
+    ----------
+    data : json object
+        The file content as a json object
+    fname : str
+        Json filename 
+
+    Returns
+    -------
+    """
+
+    try:
+        with open(fname, 'w') as f:
+            json.dump(data, f, indent = 3)
+    except:
+        ZenException(f"Check that {data} exists and it is an object compatible with json")
+    return 
+
+
 def read_xml(fname):
     """ Read a xml file and return content 
         
     Parameters
     ----------
     fname : str
-        Json filename 
+        xml filename 
 
     Returns
     -------
     data : json object
         The file content as a json object
     """
-
+# to do!!!
     try:
         with open(fname, 'r') as f:
             data = json.load(f)
@@ -254,7 +276,7 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
                     "Select a community_id or user option to limit query")
     params = {'access_token': ctx.obj['token']}
     if record_id:
-        url = url + f"/${record_id}"
+        url = url + f"/{record_id}"
     elif ctx.obj['community_id'] != "":
         params['community'] = f"{ctx.obj['community_id']}"
     elif ctx.obj['portal'] == "invenio" and user:

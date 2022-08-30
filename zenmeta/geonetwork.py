@@ -98,14 +98,16 @@ def get_parties(soup):
             person = { 'name': find_string(p, 'individualName'),
                        'affiliation' : find_string(p, 'organisationName'),
                        'role': role, 'org': False} 
-            #person = { 'name': p.find('individualName').text.strip(),
-            #           'affiliation' : p.find('organisationName').text.strip(),
-            #           'role': role, 'org': False} 
             if person['name'] == person['affiliation']:
                 person['org'] = True
             if person not in people:
                 people.append(person)
-    return people
+    cite_authors = ""
+    for p in people:
+        if p['role'] == 'author':
+            name, surname = p['name'].split()
+            cite_authors += f"{surname}, {name[0]}., "
+    return people, cite_authors
 
 
 def get_dates(soup):
@@ -161,17 +163,24 @@ def main():
         codes20 = convert_for(c)
         out['for_codes'].extend(codes20)
  
-    out['parties'] = get_parties(soup)
+    out['parties'], cite_authors = get_parties(soup)
 
-    out['dates'], year = get_dates(soup)
-    out['citation'] = " ".join(["<p>Preferred citation:</p>", f"<p><authors> ({year}): {out['title']}",
+    dates, year = get_dates(soup)
+    if dates['publication'] != "":
+        out['publication_date'] = dates['publication']
+    elif dates['creation'] != "":
+        out['publication_date'] = dates['creation']
+
+
+
+    out['citation'] = " ".join(["<p>Preferred citation:</p>", f"{cite_authors} {year}. {out['title']}",
                f"NCI Australia. (Dataset). https://dx.doi.org/{out['doi']}</p>",
                "<p>If accessing from NCI thredds you can also acknowledge the service:</p>",
                "<p>NCI Australia (2021): NCI THREDDS Data Service. NCI Australia. (Service)",
                "https://dx.doi.org/10.25914/608bfc062f4c7</p>"])
     # Links
     urls = soup.find_all('URL')#.text.strip().split()
-    out['links'] = process_urls(urls, geo_id)
+    out['related_identifiers'] = process_urls(urls, geo_id)
 
     # Find geo spatial extent
     out['geospatial'] = find_string(soup, 'EX_GeographicBoundingBox', multiple=True)

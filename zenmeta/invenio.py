@@ -42,7 +42,7 @@ def set_invenio(ctx, production):
     if production:
         base_url = 'https://oneclimate.dmponline.cloud.edu.au/api'
     else:
-        base_url = 'https://test.dmponline.cloud.edu.au/api'
+        base_url = 'https://twoclimate.dmponline.cloud.edu.au/api'
     ctx.obj['url'] = f'{base_url}/records'
     ctx.obj['deposit'] = f'{base_url}/records'
     ctx.obj['communities'] = f'{base_url}/communities'
@@ -222,7 +222,7 @@ def process_links(links):
         for k,v in link.items():
             if k in ['geonetwork','DAP']: 
                 related.append( {"identifier": v, "relation_type": {
-                    "id": "isderivedfrom", "title": {"en": "Is derived from"} },
+                    "id": "isvariantformof", "title": {"en": "Is variant form of"} },
                     "resource_type": {"id": "metadata", "title": {"en": "Metadata record"}},
                     "scheme": "url"} )
             elif k == 'RDA': 
@@ -237,12 +237,12 @@ def process_links(links):
                     "scheme": "url"} )
             elif k == 'paper': 
                 related.append( {"identifier": v, "relation_type": {
-                    "id": "iscitedby", "title": {"en": "Is cited by"} },
+                    "id": "isdescribedby", "title": {"en": "Is cited by"} },
                     "resource_type": {"id": "publication-article", "title": {"en": "Journal article"}},
                     "scheme": "doi"} )
             else: 
                 related.append( {"identifier": v, "relation_type": {
-                    "id": "documents", "title": {"en": "Documents"} },
+                    "id": "isdocumentedby", "title": {"en": "Is documented by"} },
                     "resource_type": {"id": "other-resource", "title": {"en": "Other"}},
                     "scheme": "url"} )
     return related
@@ -325,14 +325,16 @@ def process_invenio_plan(plan):
     plan_keys = [k for k in plan.keys()]
 
     # Contributors
-    metadata['creators'] , metadata['contributors'] = process_parties(
+    if 'parties' in plan_keys:
+        metadata['creators'] , metadata['contributors'] = process_parties(
                                                        plan['parties'])
+    else:
+        metadata['creators'] , metadata['contributors'] = (plan['creators'], 
+                                                        plan['contributors'])
 
     # Dates: publication date is required
-    if plan['dates']['publication'] != "":
-        metadata['publication_date'] = plan['dates']['publication']
-    elif plan['dates']['creation'] != "":
-        metadata['publication_date'] = plan['dates']['creation']
+    if 'publication_date' in plan_keys:
+        metadata['publication_date'] = plan['publication_date']
     else:
         metadata['publication_date'] = date.today().strftime('%Y-%m-%d') 
     metadata['dates'] = []
@@ -357,7 +359,7 @@ def process_invenio_plan(plan):
         metadata['locations'] = process_spatial(plan['geospatial'])
 
     # Related identifiers and identifiers
-    metadata['related_identifiers'] = process_links(plan['links'])
+    metadata['related_identifiers'] = process_links(plan['related_identifiers'])
     #if plan['doi'] != "":
     #    metadata['identifiers'] = [{'identifier': plan['doi'], 'scheme': "doi"}]
 
@@ -375,7 +377,11 @@ def process_invenio_plan(plan):
     final['files'] = {'enabled': False, "order": []}
     final['access'] = {'record': "public", 'files': "public", 'status': "metadata-only",
                        'embargo': {'active': False, 'reason': None} }
-    if plan['doi'] != "":
+    if plan['doi'] and plan['doi'].strip():
         final['pids'] = {'doi': {'identifier': plan['doi'], 
                                  'provider': 'external'}}
+    print([k for k in final.keys()])
+    print([k for k in final['metadata'].keys()])
+    print([k for k in final['files'].keys()])
+    print([k for k in final['access'].keys()])
     return final
