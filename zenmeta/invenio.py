@@ -15,11 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import requests
+import sys
 import json
+import requests
+import random
+import string
 from datetime import date
 from os.path import expanduser
-import sys
 from util import post_json, get_token, read_json
 
 
@@ -47,6 +49,11 @@ def set_invenio(ctx, production):
     ctx.obj['deposit'] = f'{base_url}/records'
     ctx.obj['communities'] = f'{base_url}/communities'
     return ctx
+
+
+def random_string(chars = string.ascii_lowercase + string.digits, n=6):
+    """Generate random string from lower case and digits""" 
+    return ''.join(random.choice(chars) for _ in range(n))
 
 
 def process_party(party, roles):
@@ -156,7 +163,7 @@ def add_description(citation, location):
     citation : str
         The preferred citation
     location : str
-        Information on hpe to access data locally
+        Information on how to access data locally
 
     Returns
     -------
@@ -377,8 +384,9 @@ def process_invenio_plan(plan):
     final['files'] = {'enabled': False, "order": []}
     final['access'] = {'record': "public", 'files': "public", 'status': "metadata-only",
                        'embargo': {'active': False, 'reason': None} }
-    if plan['doi'] and plan['doi'].strip():
-        final['pids'] = {'doi': {'identifier': plan['doi'], 
+    if not (plan['doi'] and plan['doi'].strip()):
+        plan['doi'] = "10.1234567/" + random_string() 
+    final['pids'] = {'doi': {'identifier': plan['doi'], 
                                  'provider': 'external'}}
     print([k for k in final.keys()])
     print([k for k in final['metadata'].keys()])

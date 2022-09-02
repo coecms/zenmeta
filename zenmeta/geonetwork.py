@@ -1,8 +1,9 @@
 import json
-from bs4 import BeautifulSoup
 import sys
-from util import read_json, convert_for
 import json
+import re
+from bs4 import BeautifulSoup
+from util import read_json, convert_for
 from exception import ZenException
 
 # Finding all instances of tag
@@ -36,12 +37,40 @@ def process_urls(urls, geo_id):
     return links_unique
 
 
+def process_abstract(soup):
+    """Extract abstract then looks for urls and wraps them in html
+    """
+    abstract = find_string(soup, 'abstract')
+    # find all occurences of http and add a html link
+    idxs = [m.start() for m in re.finditer('http', abstract)] 
+    # to add to index to keep into account its new position after html chars added
+    addedchar = 0
+    for idx in idxs:
+        idx = idx + addedchar # to keep into account
+        part1 = abstract[:idx]
+        part2 = abstract[idx:]
+        for separator in (" ", "<"):
+            try:
+                space_idx = part2.index(separator)
+                break
+            except :
+                continue
+        else:
+            space_idx = len(abstract) + 1
+        part2 = "<a href='" + part2[:space_idx] + "'>LINK</a>" + part2[space_idx:] 
+        abstract = part1 + part2
+        addedchar += 19
+        del part1, part2
+    return abstract
+
+
 def process_description(soup, keywords, for_codes):
     """Put together description adding to the abstract other fields that cannot be directly mapped to other fields
     """
 
     # retrieve all the relevant fields
     abstract = find_string(soup, 'abstract')
+    abstract = process_abstract(soup)
     update = "<p>Update: " + find_string(soup, 'maintenanceAndUpdateFrequency') + "</p>"
     fformat = "<p>Format: " + find_string(soup, 'MD_Format') + "</p>"
     lineage = "<p>Lineage: " + find_string(soup, 'LI_Lineage') + "</p>"
@@ -104,8 +133,11 @@ def get_parties(soup):
                 people.append(person)
     cite_authors = ""
     for p in people:
-        if p['role'] == 'author':
-            name, surname = p['name'].split()
+        if p['role'] in ['author', 'principalInvestigator']:
+            bits = p['name'].split()
+            # if name composed of more then 2 parts, all but last are saved as name
+            name = " ".join(bits[:-1])
+            surname = bits[-1]
             cite_authors += f"{surname}, {name[0]}., "
     return people, cite_authors
 
@@ -154,7 +186,7 @@ def main():
     path = find_string(soup, 'mediumName')
     project = find_string(soup, 'code')
     out['location'] = "".join(["<p>Direct access to the data is available on the NCI servers:</p>",
-           f"<p>project: https://my.nci.org.au/mancini/login?next=/mancini/project/{project}</p>",
+           f"<p>project: <a href='https://my.nci.org.au/mancini/login?next=/mancini/project/{project}'></a></p>",
            f"<p>path: {path}</p>"])
 
     out['keywords'], for_codes  = get_codes(soup)
