@@ -388,8 +388,4 @@ def process_invenio_plan(plan):
         plan['doi'] = "10.1234567/" + random_string() 
     final['pids'] = {'doi': {'identifier': plan['doi'], 
                                  'provider': 'external'}}
-    print([k for k in final.keys()])
-    print([k for k in final['metadata'].keys()])
-    print([k for k in final['files'].keys()])
-    print([k for k in final['access'].keys()])
     return final

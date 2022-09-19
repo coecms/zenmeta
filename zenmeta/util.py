@@ -34,7 +34,7 @@ def config_log():
     logger = logging.getLogger('zen_log')
     # set a formatter to manage the output format of our handler
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                                  "%Y-%m-%d H:%M")
+                                  "%Y-%m-%d %H:%M")
     # set the level for the logger, has to be logging.LEVEL not a string
     # until we do so cleflog doesn't have a level and inherits the root
     # logger level:WARNING
@@ -84,18 +84,40 @@ def get_token(portal, production=False):
     return token
 
 
-def output_mode(ctx, records, mode, user=False, draft=False):
-    if ctx.obj['portal'] == "invenio":
-        id_label = 'id'
-        #if user is False:
-        records = records['hits']['hits']
-    elif user is True:
-        records = records['hits']['hits']
-        id_label = 'id'
+def extract_records(ctx, records, mode, lrids, user=False, draft=False):
+    """Extract actual records from request response depending on
+       selected mode 
+        
+    Parameters
+    ----------
+    ctx : Click Context obj
+        Including base url and cite url, community_id, portal and token info
+    records : dict
+        The records returned by the requests response
+    user : bool, optional 
+        If True retrieve all records for the user
+        (default False) 
+    draft : bool, optional 
+        If True then retrieve only draft records 
+        (default False) 
+    mode : str, optional 
+        Define the kind of information to retrieve, default is complete records 
+        (default='json')
+
+    Returns
+    -------
+    records : list
+        The extracted records as a list
+    """
+    # if user specified record ids to retrieve then records list is ready 
+    # otherwise extract from ['hits']['hits']
+    # if mode ids, retrieve only the records' ids
+    if lrids!= 0:
+        pass
     else:
-        id_label = 'record_id'
+        records = records['hits']['hits']
     if mode == 'ids':
-        records = [x[id_label] for x in records]
+        records = [x['id'] for x in records]
     return records 
 
 
@@ -259,19 +281,19 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
     # For invenio
     # {"status": 406, "message": "Invalid 'Accept' header. Expected one of: application/json, application/vnd.inveniordm.v1+json, application/vnd.citationstyles.csl+json, application/vnd.datacite.datacite+json, application/vnd.datacite.datacite+xml, application/x-dc+xml, text/x-bibliography"}
     # Build request url based on:
-    # if record_id is passed retireve a specific record
-    # elif user is passer get all record for that user
-    # elif community is passed get all record for community
-    # else get all record
+    # if record_id is passed retrieve a specific record
+    # elif user is passed get all records for that user
+    # elif community is passed get all records for community
+    # else get all records
     # if draft is True get drafts otherwise get published records
     # only the user query or a specific record return drafts
     # NB community currently works only for zenodo
     #if ctx.obj['community_id'] != "" or user is True:
     if user is True:
-        url = ctx.obj['url']
-    else:
         url = ctx.obj['deposit']
-        if mode == 'bibtex' and ctx.obj['portal'] == "zenodo":
+    else:
+        url = ctx.obj['url']
+        if mode == 'bibtex' and not record_id and ctx.obj['portal'] == "zenodo":
             raise ZenException("This would retrieve all records in zenodo!!\n"+
                     "Select a community_id or user option to limit query")
     params = {'access_token': ctx.obj['token']}
@@ -288,7 +310,7 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
             params['q'] = "is_published:false"
         elif ctx.obj['portal'] == "zenodo":
             params['status'] = "draft"
-
+    # send request
     r = requests.get(url, params=params,
                      headers=headers[mode])
     ctx.obj['log'].debug(f"{headers[mode]}")
@@ -334,18 +356,49 @@ def remove_record(ctx, record_id, safe):
         r = None
     return r
 
+
+def convert_ror(affiliation):
+    """Convert affiliation to ror  codes used by invenio
+
+    Parameters
+    ----------
+    affiliation: str
+        Affiliation name
+
+    Returns
+    -------
+    ror: str
+        ROR id as recorded in invenio affiliations vocabulary
+    """
+    rors = read_json("data/affiliations.json")
+    if affiliation == "University of New South Wales":
+        affiliation = "UNSW Sydney"
+    for k,v in rors.items():
+        if affiliation in k:
+            ror = {'name': k, 'id': v['id']}
+            break
+    return ror
+
+
 def convert_for(code08):
     """Convert ANZSRC FOR codes from 2008 to 2020 classification
 
-    code08: dict
-            dictionary with code and name keys
+    Parameters
+    ----------
+    code08: int/str 
+        Code in FOR2008 style id (int) or name (str)
+
+    Returns
+    -------
+    map_codes: list(dict)
+        List of FOR2020 mappings (dictionaries) for input code
     """
-    newcodes = []
-    codes20 = read_json('data/for_map.json')
+    map_codes = []
+    codes20 = read_json("data/for_map.json")
     if isinstance(code08, int):
-        newcodes = codes20[code08['code']]['codes_2020']
+        map_codes = codes20[code08['code']]['codes_2020']
     else:
         for k,v in codes20.items():
             if v['name_2008'] == code08:
-                newcodes = v['codes_2020']
-    return newcodes
+                map_codes = v['codes_2020']
+    return map_codes

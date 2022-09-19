@@ -21,8 +21,8 @@ import click
 import logging
 import sys
 from util import (config_log, post_json, get_token, read_json, write_json,
-                  get_bucket, get_records, output_mode, remove_record)
-from zenodo import set_zenodo, process_zenodo_plan
+                  get_bucket, get_records, extract_records, remove_record)
+from zenodo import set_zenodo, process_zenodo_plan, to_invenio
 from invenio import set_invenio, process_invenio_plan
 # if this remain different from zenodo I should move it to invenio.py file
 from exception import ZenException
@@ -87,8 +87,10 @@ def zen(ctx, portal, production, community_id, token, debug):
                help="Create new version if record already exists")
 @click.option('--skip', is_flag=True, default=False,
                help="Skip processing if record comes from backup")
+@click.option('--fromzen', is_flag=True, default=False,
+               help="Minimal processing if record comes from zenodo")
 @click.pass_context
-def upload_meta(ctx, fname, version, skip):
+def upload_meta(ctx, fname, version, skip, fromzen):
     """Upload metadata from a list of records in a json input file.
 
     If a record exists already is updated, otherwise creates a new one.
@@ -126,6 +128,8 @@ def upload_meta(ctx, fname, version, skip):
         else:
             if skip:
                 record = plan
+            elif fromzen:
+                record = to_invenio(plan)
             else:
                 zen_log.info(plan['title'])
                 record = process_invenio_plan(plan)
@@ -206,21 +210,21 @@ def upload_files(ctx, record_id, fname):
 
 
 @zen.command(name='list')
-@click.option('--ids', '-i', multiple=True, help="Record ids to list")
+@click.option('--record_id', '-i', 'rids', multiple=True, help="Record ids to list")
 @click.option('--mode', '-m', multiple=False, type=click.Choice(
               ['biblio', 'bibtex', 'json', 'ids', 'datacite-json',
                'csl', 'zenodo', 'marc-xml', 'datacite-xml',
                'dublin-core']), default='json', help="Output format" )
-@click.option('--user', '-u',  is_flag=True, default=False, help="If True " +
-              "list only user records")
-@click.option('--draft',  is_flag=True, default=False, help="If True " +
-              "list drafts, default is False")
+@click.option('--user', '-u',  is_flag=True, default=False,
+              help="If True list only user records")
+@click.option('--draft',  is_flag=True, default=False,
+              help="If True list drafts, default is False")
 @click.pass_context
-def list_records(ctx, ids, user, draft, mode):
+def list_records(ctx, rids, user, draft, mode):
     """List records based on input arguments
     """
-    token = ctx.obj['token']
-    url = ctx.obj['url']
+    #token = ctx.obj['token']
+    #url = ctx.obj['url']
     zen_log = ctx.obj['log']
     # if draft is used with invenio user is automatically True
     if ctx.obj['portal'] == "invenio" and draft:
@@ -228,22 +232,23 @@ def list_records(ctx, ids, user, draft, mode):
     zen_log.debug(f"Draft is {draft}")
     zen_log.debug(f"Output mode is {mode}")
     zen_log.debug(f"User is {user}")
-    if len(ids) == 0:
+    if len(rids) == 0:
         records = get_records(ctx, user=user, draft=draft, mode=mode)
     else:
         records = []
-        for recid in ids:
+        for recid in rids:
             records.append( get_records(ctx, record_id = recid, 
                             user=user, draft=draft, mode=mode) )
-        zen_log.debug(f'{ids}')
+        zen_log.debug(f'{rids}')
     if mode not in ['bibtex', 'biblio']:
-        records = output_mode(ctx, records, mode, user=user, draft=draft)  
+        records = extract_records(ctx, records, mode, len(rids), user=user, draft=draft)  
     # if mode compatible with json save to file instead of printing
-    if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json', 'ids']:
-        print('Writing output to output.json file')
+    if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json']:
+        zenlog.info('Writing output to output.json file')
         write_json(records)
     else:
-        print(records)
+        for r in records:
+            print(r)
 
 if __name__ == '__main__':
     zen()
