@@ -22,7 +22,7 @@ import random
 import string
 from datetime import date
 from os.path import expanduser
-from util import post_json, get_token, read_json
+from util import post_json, put_json, get_token, read_json, get_records
 
 
 def set_invenio(ctx, production):
@@ -42,12 +42,15 @@ def set_invenio(ctx, production):
     """
 
     if production:
-        base_url = 'https://oneclimate.dmponline.cloud.edu.au/api'
+        base_url = 'https://oneclimate.acdguide.cloud.edu.au/api'
     else:
-        base_url = 'https://twoclimate.dmponline.cloud.edu.au/api'
+        base_url = 'https://zeroclimate.dmponline.cloud.edu.au/api'
     ctx.obj['url'] = f'{base_url}/records'
     ctx.obj['deposit'] = f'{base_url}/records'
     ctx.obj['communities'] = f'{base_url}/communities'
+    if ctx.obj['community_id'] == "":
+        ctx.obj['community_id'] = "acdg"
+    ctx.obj['community_id_db'] = get_community_id(ctx.obj)
     return ctx
 
 
@@ -113,7 +116,35 @@ def process_party(party, roles):
 
 
 def process_time(coverage):
+    """Process time from/to dates so it can be added to the dates metadata
+
+    Parameters
+    ----------
+    coverage : list
+        [From date, to date]
+
+    Returns
+    -------
+    from_date : dict
+        Dictionary following metadata schema for dates
+    to_date : dict
+        Dictionary following metadata schema for dates
+    """
+    from_date = {'date': coverage[0],
+        'description': "Start of temporal coverage",
+        'type': { 'id': "from-date", 'title': {'en': "From date"} }
+        }
+    to_date = {'date': coverage[1],
+        'description': "End of temporal coverage",
+        'type': { 'id': "to-date", 'title': {'en': "To date"} }
+        }
+    return [from_date, to_date]
+
+
+def process_time_obsolete(coverage):
     """Process time coverage range so it can be added to the dates metadata
+    Currently we are using from-date and to-date but leaving it here 
+    just in case
 
     Parameters
     ----------
@@ -262,14 +293,23 @@ def create_subject(scheme, sid, term):
     return subject 
 
 
+def create_custom(sid, term):
+    """
+    """
+    field = {'id': sid, 'title': {'en': term}}
+    return field 
+
+
 def process_subjects(fformat, codes):
     """
     """
     subjects = []
+    customs = ["region", "resolution", "frequency", "format", "realm"] 
+    custom_fields = {k:[] for k in customs}
     if fformat != "":
         fid, fterm = convert_format(fformat)
-        fsub = create_subject('format', fid, fterm)
-        subjects.append(fsub)
+        field = create_custom(fid, fterm)
+        custom_fields['format'].append(field)
     if codes != []:
         for c in codes:
             csub = create_subject('ANZSRC-FOR', c['code'], c['name'])
@@ -325,7 +365,7 @@ def process_parties(parties):
     return creators, contributors
 
 
-def process_invenio_plan(plan):
+def process_invenio_plan(plan, community_id_db):
     """
     """
     metadata = {}
@@ -346,7 +386,7 @@ def process_invenio_plan(plan):
         metadata['publication_date'] = date.today().strftime('%Y-%m-%d') 
     metadata['dates'] = []
     if plan['time_coverage'] not in [[], ""]:
-        metadata['dates'].append(process_time(plan['time_coverage']))
+        metadata['dates'].extend(process_time(plan['time_coverage']))
     # Titles, version, description
     metadata['title'] = plan['title']
     if plan['alt_title'] != "":
@@ -362,8 +402,9 @@ def process_invenio_plan(plan):
     metadata['additional_descriptions'] = add_description(plan['citation'], plan['location'])
 
     # Geospatial info: build GeoJSON polygon
-    if plan['geospatial'] not in [[], ""]:
-        metadata['locations'] = process_spatial(plan['geospatial'])
+    geospatial = plan.get('geospatial', "")
+    if geospatial not in [[], ""]:
+        metadata['locations'] = process_spatial(geospatial)
 
     # Related identifiers and identifiers
     metadata['related_identifiers'] = process_links(plan['related_identifiers'])
@@ -378,6 +419,9 @@ def process_invenio_plan(plan):
         metadata['resource_type'] = plan['resource_type']
     metadata['language'] = 'English'
     metadata['publisher'] = plan['publisher'] 
+    if plan.get('handle', None):
+        metadata['identifiers'] = [
+            {'identifier': plan['handle'], 'scheme': 'handle'}] 
     final = {}
     final['metadata'] = metadata
     #final['modified'] = date.today().strftime("%Y-%m-%d")
@@ -388,4 +432,116 @@ def process_invenio_plan(plan):
         plan['doi'] = "10.1234567/" + random_string() 
     final['pids'] = {'doi': {'identifier': plan['doi'], 
                                  'provider': 'external'}}
+    # set up record for submission to community
+    final["parent"] = {
+        "review": {
+            "type": "community-submission",
+            "receiver": {"community": community_id_db},
+        }
+    }
     return final
+
+
+def get_community_id(obj):
+    """Get community db id based on slug
+
+    Parameters
+    ----------
+    obj : dict
+        The cli context obj including url, authentication token and community
+
+    Returns
+    -------
+    com_id : str
+        The id for the community 
+    """
+    zen_log = obj['log']
+    r = requests.get(obj['communities'])
+    # this is not logging anything why???
+    zen_log.debug(f"Get community request: {r}")
+    communities = r.json()['hits']['hits']
+    com_id = ""
+    for c in communities:
+        if c['slug'] == obj['community_id']:
+            com_id = c['id']
+            break
+    return com_id
+
+
+def submit_review(ctx, record_id):
+    """Submit record to a community for review
+
+    Parameters
+    ----------
+    ctx : dict
+        The cli context including url, authentication token and community
+    record_id : str
+        The id for the draft record to submit
+
+    Returns
+    -------
+    """
+    log = ctx.obj['log']
+    url = '/'.join([ctx.obj['url'], record_id, 'draft', 'review'])
+    log.debug(f"Review url: {url}")
+    data = {
+            'receiver': {'community': ctx.obj['community_id_db']},
+            'type': 'community-submission',
+        }
+    r = put_json(url, ctx.obj['token'], data, ctx.obj['log'])
+    if r.status_code >= 400:
+        log.info(r.text)
+    return r
+
+
+def convert_v10(plan, community_id_db):
+    """Applies to records changes in schema to migrate records to v10
+    Map selected subjects to custom fields
+    Convert temporal coverage to from-date/to-date
+    """
+
+    # define list of subjects to map
+    customs = ["region", "resolution", "frequency", "format", "realm"] 
+    # get subjects from plan
+    if 'subjects' in plan['metadata'].keys():
+        subjects = plan['metadata']['subjects'].copy()
+        plan['custom_fields'] = {k:[] for k in customs}
+    # this is so we update indexes after removing elements
+        removed = 0
+        for idx,sub in enumerate(subjects):
+            if 'scheme' in sub.keys() and sub['scheme'] in customs:
+                field = {'id': sub['id'], 'title': {'en': sub['subject']}}
+                del plan['metadata']['subjects'][idx-removed]
+                plan['custom_fields'][sub['scheme']].append(field)
+                removed +=1
+    # convert temporal range to from/to dates
+    # currently we're not removing the temporal coverage
+    # in case range search improves
+    if 'dates' in plan['metadata'].keys():
+        for date in plan['metadata']['dates']:
+            if date['type']['id'] == 'coverage':
+                coverage = date['date'].split("/")
+                newdates = process_time(coverage)
+                plan['metadata']['dates'].extend(newdates)
+    # set up record for submission to community
+    plan["parent"] = {
+        "review": {
+            "type": "community-submission",
+            "receiver": {"community": community_id_db},
+        }
+    }
+    return plan
+
+
+def add_community(ctx, rec_id, com_id):
+    ###
+    ###
+    zen_log = ctx.obj['log']
+    url = "/".join([ctx.obj['url'], rec_id])
+    #url = "/".join([ctx.obj['url'], rec_id, "draft"])
+    #record  = get_records(ctx, record_id=rec_id, draft=True)
+    record  = get_records(ctx, record_id=rec_id)
+    record['parent']['communities']['ids'].append(com_id)
+    print(record)
+    r = put_json(url, ctx.obj['token'], record, zen_log)
+    return r

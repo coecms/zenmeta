@@ -23,7 +23,8 @@ import sys
 from util import (config_log, post_json, get_token, read_json, write_json,
                   get_bucket, get_records, extract_records, remove_record)
 from zenodo import set_zenodo, process_zenodo_plan, to_invenio
-from invenio import set_invenio, process_invenio_plan
+from invenio import (set_invenio, process_invenio_plan, convert_v10,
+                     submit_review, add_community)
 # if this remain different from zenodo I should move it to invenio.py file
 from exception import ZenException
 
@@ -54,17 +55,17 @@ def zen_catch():
 @click.pass_context
 def zen(ctx, portal, production, community_id, token, debug):
     ctx.obj={}
+    ctx.obj['log'] = config_log()
+    # set up a config depending on portal and production values
+    ctx.obj['production'] = production
+    ctx.obj['community_id'] = community_id
     if portal is None:
         ctx.obj['portal'] = 'invenio' 
         ctx = set_invenio(ctx, production)
     else:
         ctx.obj['portal'] = portal 
-        # can only be zenodo currently could chnage in future
+        # can only be zenodo currently could change in future
         ctx = set_zenodo(ctx, production)
-    ctx.obj['log'] = config_log()
-    # set up a config depending on portal and production values
-    ctx.obj['production'] = production
-    ctx.obj['community_id'] = community_id
     # get either sandbox or api token to connect
     if token:
         ctx.obj['token'] = token
@@ -114,7 +115,6 @@ def upload_meta(ctx, fname, version, skip, fromzen):
     zen_log.info(f"Uploading metadata from {fname} to {ctx.obj['portal']},"
                  + f" production: {ctx.obj['production']}")
 
-
     # read data from input json file and process plans in file
     data = read_json(fname)
     # process data for each plan and post records returned by process_plan()
@@ -127,16 +127,28 @@ def upload_meta(ctx, fname, version, skip, fromzen):
                 record = process_zenodo_plan(plan, ctx.obj['community_id'])
         else:
             if skip:
-                record = plan
+                #record = plan
+                # temporarily convert record from v9 to v10
+                record = convert_v10(plan, ctx.obj['community_id_db'])
+                #print(record)
             elif fromzen:
+                zen_log.info(plan['metadata']['title'])
                 record = to_invenio(plan)
+                if record == {}:
+                    zen_log.info('Skipping record')
+                    continue
             else:
                 zen_log.info(plan['title'])
-                record = process_invenio_plan(plan)
+                record = process_invenio_plan(plan, ctx.obj['community_id_db'])
         r = post_json(ctx.obj['url'], token, record, zen_log)
         zen_log.debug(f"Request: {r.request}") 
         zen_log.debug(f"Request url: {r.url}") 
         zen_log.info(r.status_code) 
+        #if ctx.obj['portal'] == "invenio" and ctx.obj['community_id_db'] != "":
+        #    r_review = submit_review(ctx, r.json()['id'])
+        #zen_log.debug(f"Review request: {r_review.request}") 
+        #zen_log.debug(f"Review request url: {r_review.url}") 
+        #zen_log.info(r_review.status_code) 
     return
 
 
@@ -168,9 +180,10 @@ def delete_records(ctx, ids, draft):
             # double check state is correct as query seemed to ignore this filter
             ids = [x['id'] for x in records if x['state'] == 'unsubmitted']
         else:
-            records = get_invenio_drafts(ctx.obj['url'], token,
-                      user=user, draft=draft)
-            ids = [x['id'] for x in records]
+            #ids = get_records(ctx, user=True, draft=draft, mode='ids')
+            records = get_records(ctx, user=True, draft=draft, mode='ids')
+            zen_log.info(f"Found {records['hits']['total']} records")
+            ids = [x['id'] for x in records['hits']['hits']]
         zen_log.debug(f'{ids}')
 
     zen_log.info(f"Removing records {ids} from {ctx.obj['portal']},"
@@ -244,11 +257,40 @@ def list_records(ctx, rids, user, draft, mode):
         records = extract_records(ctx, records, mode, len(rids), user=user, draft=draft)  
     # if mode compatible with json save to file instead of printing
     if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json']:
-        zenlog.info('Writing output to output.json file')
+        zen_log.info('Writing output to output.json file')
         write_json(records)
     else:
         for r in records:
             print(r)
+
+
+@zen.command(name='community')
+@click.option('--record_id', '-i', 'rids', multiple=True, 
+              required=True, help="Record ids to add to community")
+@click.pass_context
+def community(ctx, rids):
+    """Add one or more (drafts) records to a community.
+
+    At least one record_id is required and a community_id has to be defined.
+
+    Parameters
+    ----------
+    ctx: dict
+        Click context obj including api information 
+    rids: list, required
+        record id/s 
+
+    Returns
+    -------
+    """
+    if 'community_id_db' not in ctx.obj.keys():
+        raise ZenException("There is no community defined")
+    zen_log = ctx.obj['log']
+    com_id  = ctx.obj['community_id_db']
+    for rid in rids:
+        status = add_community(ctx, rid, com_id)
+        zen_log.info(f"Request status: {status}")
+
 
 if __name__ == '__main__':
     zen()

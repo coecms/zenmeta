@@ -71,7 +71,7 @@ def run_query(url, queryParams, headers):
 def main():
     # define api details
     baseURL = "https://data.csiro.au/dap/ws/v2/"
-    endpoint = "collections/search"
+    endpoint = "collections"
     url = baseURL + endpoint
     
     # open output file
@@ -83,6 +83,7 @@ def main():
 
     # define first query
     forcode = sys.argv[1]
+    #keyw = sys.argv[1]
     headers = {"Accept":"application/json"}
     queryParams = {
                #"q": "climate",
@@ -92,7 +93,7 @@ def main():
                "soud": False,
                "showFacets": True,
                #"psd":" 2012-03-29T17:21:37+10:00",
-               #"ped":" 2017-12-29T09:22:32+11:00",
+               #"ped":" 2023-01-30T09:22:32+10:00",
                "sb": "RELEVANCE"}
     resultPage = run_query(url, queryParams, headers)
     writer = write_records(resultPage, writer)

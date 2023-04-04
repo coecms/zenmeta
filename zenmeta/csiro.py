@@ -24,12 +24,17 @@ def process_description(description, data, for_codes):
     extra = ['lineage', 'credit', 'size', 'keywords']
     for k in extra:
         description += f"<p>{k.capitalize()}: {data.get(k,'')} </p>"
-    org_levels = data['organisationalLevels']
-    for k in [x for x in org_levels.keys() if x != 'irpHierarchy']:
-        description += f"<p>{k.capitalize()}: {org_levels[k]} </p>"
+    org_levels = data.get('organisationalLevels', None)
+    if org_levels:
+        for k in [x for x in org_levels.keys() if x != 'irpHierarchy']:
+            description += f"<p>{k.capitalize()}: {org_levels[k]} </p>"
     # temporarily add keywords and for_codes here as we're using FOR codes 2020 and geonetwork sues older version 
     description += f"<p>FOR codes: {', '.join(for_codes)} </p>"
     description += f"<p>Project: {data['project']['projectTitle']} </p>"
+    if data.get('activity', None):
+        description += f"<p>Activity: {data['activity']['activityDescription']} </p>"
+    if data['withdrawn'] == 'true':
+        description += f"<p> Record listed as withdrawn!!!</p>"
     return description 
 
 
@@ -77,7 +82,7 @@ def get_dates(data):
     some date elements have "date time type", in others date and time are joined
     string is split and last "bit" is the type, other bits are joined but only
     first 10 characters are kept for date 
-    Return also year to sue for citation
+    Return also year to use for citation
     """
 
     publication_date = data['published'].split("T")[0]
@@ -114,6 +119,7 @@ def main():
     data = read_json(fname)
     keys = [k for k in data.keys()]
     print(keys)
+    ##       'contributors',   
     csiro_id = data['dataCollectionId'] 
 
     # initial output dict
@@ -157,9 +163,12 @@ def main():
         out['citation'] += f"<p>Contact: {' - '.join([v for v in data['contact'].values()])} </p>"
     # Links
     out['related_identifiers'] = process_urls(data.get('landingPage'), data.get('relatedLinks',[]))
+    out['handle'] = data['andsPid']
 
     # Find geo spatial extent
-    out['geospatial'] = convert_spatial(data['spatialParameters']) 
+    spatial = data.get('spatialParameters', None)
+    if spatial:
+        out['geospatial'] = convert_spatial(spatial) 
         
     out['time_coverage'] = [data['dataStartDate'], data['dataEndDate']] 
     # save 2008 version of for_codes in description

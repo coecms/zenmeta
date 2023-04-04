@@ -84,43 +84,6 @@ def get_token(portal, production=False):
     return token
 
 
-def extract_records(ctx, records, mode, lrids, user=False, draft=False):
-    """Extract actual records from request response depending on
-       selected mode 
-        
-    Parameters
-    ----------
-    ctx : Click Context obj
-        Including base url and cite url, community_id, portal and token info
-    records : dict
-        The records returned by the requests response
-    user : bool, optional 
-        If True retrieve all records for the user
-        (default False) 
-    draft : bool, optional 
-        If True then retrieve only draft records 
-        (default False) 
-    mode : str, optional 
-        Define the kind of information to retrieve, default is complete records 
-        (default='json')
-
-    Returns
-    -------
-    records : list
-        The extracted records as a list
-    """
-    # if user specified record ids to retrieve then records list is ready 
-    # otherwise extract from ['hits']['hits']
-    # if mode ids, retrieve only the records' ids
-    if lrids!= 0:
-        pass
-    else:
-        records = records['hits']['hits']
-    if mode == 'ids':
-        records = [x['id'] for x in records]
-    return records 
-
-
 def read_json(fname):
     """ Read a json file and return content 
         
@@ -193,11 +156,13 @@ def post_json(url, token, data, log):
     Parameters
     ----------
     url : str
-        The url address to post to 
-    token : str
-        The authentication token for the api 
+        The url to post to
+    token: str
+        The authentication token
     data : json object
         The file content as a json object
+    log: obj
+        The logging obj to send debug information
 
     Returns
     -------
@@ -207,10 +172,42 @@ def post_json(url, token, data, log):
 
     log.debug(f"Post request url: {url}")
     headers = {"Content-Type": "application/json"}
+    params = {'access_token': token}
     r = requests.post(url,
-            params={'access_token': token}, json=data,
+            params=params, json=data,
             headers=headers)
-    if r.status_code in  [400, 403, 500]:
+    if r.status_code >= 400:
+        log.info(r.text)
+    return r
+
+
+def put_json(url, token, data, log):
+    """ Post data to a json file
+        
+    Parameters
+    ----------
+    url : str
+        The url to post to
+    token: str
+        The authentication token
+    data : json object
+        The file content as a json object
+    log: obj
+        The logging obj to send debug information
+
+    Returns
+    -------
+    r : requests object
+      The requests response object
+    """
+
+    log.debug(f"Post request url: {url}")
+    headers = {"Content-Type": "application/json"}
+    params = {'access_token': token}
+    r = requests.put(url,
+            params=params, json=data,
+            headers=headers)
+    if r.status_code >= 400:
         log.info(r.text)
     return r
 
@@ -225,7 +222,7 @@ def get_bucket(url, token, record_id):
     token : str
         The authentication token for the api 
     record_id : str
-        The id for record we want to upload files to
+        The id for record we  to upload files to
 
     Returns
     -------
@@ -238,6 +235,44 @@ def get_bucket(url, token, record_id):
     r = requests.get(url, params={'access_token': token},
                      headers=headers)
     return r.json()["links"]["bucket"]
+
+
+def extract_records(ctx, records, mode, lrids, user=False, draft=False):
+    """Extract actual records from request response depending on
+       selected mode 
+        
+    Parameters
+    ----------
+    ctx : Click Context obj
+        Including base url and cite url, community_id, portal and token info
+    records : dict
+        The records returned by the requests response
+    user : bool, optional 
+        If True retrieve all records for the user
+        (default False) 
+    draft : bool, optional 
+        If True then retrieve only draft records 
+        (default False) 
+    mode : str, optional 
+        Define the kind of information to retrieve, default is complete records 
+        (default='json')
+
+    Returns
+    -------
+    records : list
+        The extracted records as a list
+    """
+    # if user specified record ids to retrieve then records list is ready 
+    # otherwise extract from ['hits']['hits']
+    # if mode ids, retrieve only the records' ids
+    if lrids!= 0:
+        pass
+    else:
+        records = records['hits']['hits']
+    if mode == 'ids':
+        records = [f"{x['metadata']['title']}, {x['id']}" for x in records]
+        #records = [x['id'] for x in records]
+    return records 
 
 
 def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
@@ -296,11 +331,11 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
         if mode == 'bibtex' and not record_id and ctx.obj['portal'] == "zenodo":
             raise ZenException("This would retrieve all records in zenodo!!\n"+
                     "Select a community_id or user option to limit query")
-    params = {'access_token': ctx.obj['token']}
+    params = {'access_token': ctx.obj['token'], 'size': 100}
     if record_id:
         url = url + f"/{record_id}"
     elif ctx.obj['community_id'] != "":
-        params['community'] = f"{ctx.obj['community_id']}"
+        params['communities'] = f"{ctx.obj['community_id']}"
     elif ctx.obj['portal'] == "invenio" and user:
         url = url.replace("/records","/user/records")
     if draft:
@@ -319,6 +354,7 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
     ctx.obj['log'].debug(f"Request url: {r.url}")
     if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json', 'ids']:
         output = r.json()
+        # should differentiate ids from others!!!
     else:
         output = r.text
     ctx.obj['log'].debug(f"Type of output returned: {type(output)}")
@@ -335,15 +371,16 @@ def remove_record(ctx, record_id, safe):
 
     headers = {"Content-Type": "application/json"}
     # if safe mode ask for confirmation before deleting
-    answer = 'Y'
     url = ctx.obj['url']+ f"/{record_id}"
     log = ctx.obj['log']
     if ctx.obj['portal'] == "invenio":
         url = url + "/draft"
     if safe:
         answer = input(f"Are you sure you want to delete {record_id}? (Y/N)")
+    else:
+        answer = 'Y'
     if answer == 'Y':
-        r = requests.delete(ctx.obj['url']+ f"/{record_id}",
+        r = requests.delete(url,
                 params={'access_token': ctx.obj['token']},
                 headers=headers)
         if r.status_code == 204:
@@ -373,6 +410,8 @@ def convert_ror(affiliation):
     rors = read_json("data/affiliations.json")
     if affiliation == "University of New South Wales":
         affiliation = "UNSW Sydney"
+    # intialise ror in case there is no match
+    ror = {'name': affiliation}
     for k,v in rors.items():
         if affiliation in k:
             ror = {'name': k, 'id': v['id']}

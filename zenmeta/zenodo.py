@@ -268,17 +268,18 @@ def map_identifiers(idlist):
 
     """
     rel_ids = []
-    alt_ids = []
+    #alt_ids = []
     for rid in idlist:
-        if rid['relation'] == "isAlternateIdentifier":
-            rid.pop('relation')
-            alt_ids.append(rid)
-        else:
+        #if rid['relation'] == "isAlternateIdentifier":
+        #    rid.pop('relation')
+        #    alt_ids.append(rid)
+        #else:
             rel_ids.append( {'identifier': rid['identifier'],
                 'relation_type': {'id': rid['relation'].lower()},
                 'resource_type': {'id': "other-resource", 'title': {'en': "Other"}},
                 'scheme': rid['scheme']} )
-    return rel_ids, alt_ids
+    #return rel_ids, alt_ids
+    return rel_ids
 
 
 def invenio_creator(record):
@@ -296,11 +297,14 @@ def invenio_creator(record):
 
     """
     new ={}
-    surname, name = record['name'].split(",")
-    new['affiliations'] = [ convert_ror(record['affiliation']) ]
+    try:
+        surname, name = record['name'].split(",")
+    except:
+        surname, name = record['name'], ""
+    new['affiliations'] = [ convert_ror(record.get('affiliation', "NONE")) ]
     new['person_or_org'] = { 'family_name': surname,
         'given_name': name, 'identifiers': [
-        {'identifier': record['orcid'], 'scheme': "orcid"}],
+        {'identifier': record.get('orcid', ""), 'scheme': "orcid"}],
         'name': record['name'], 'type': "personal" }
     return new
 
@@ -338,13 +342,16 @@ def to_invenio(plan):
 
     # Most of the plan can be used as it is, only selected elements need to be mapped
     meta = plan['metadata']
+    # if access restricted skip entire record
+    if meta['access_right'] == "restricted":
+        return {} 
     # remove unwanted keys
-    discard = ['prereserve_doi']
-    [meta.pop(k) for k in discard]
+    discard = ['access_right_category', 'prereserve_doi']
+    [meta.pop(k, None) for k in discard]
 
     # upload_type _> resource_type
-    rtype = meta.pop('upload_type')
-    meta['resource_type'] = {'id': rtype, 'title': rtype.capitalize()}
+    #rtype = meta.pop('upload_type')
+    #meta['resource_type'] = {'id': rtype, 'title': rtype.capitalize()}
     # notes -> additional_information
     notes = meta.pop('notes', "")
     meta['additional_descriptions'] = { 'description': notes,
@@ -360,11 +367,13 @@ def to_invenio(plan):
         meta['publisher'] = "Zenodo"
 
     # fix existing related_identifiers
-    meta['related_identifiers'], meta['identifiers'] = map_identifiers(meta['related_identifiers'])
+    #meta['related_identifiers'], meta['identifiers'] = map_identifiers(meta['related_identifiers'])
+    rel_ids = meta.pop('related_identifiers', [])
+    meta['related_identifiers'] = map_identifiers(rel_ids)
+    meta['identifiers'] = meta.pop('alternate_identifiers', [])
     # extend related identifiers
-    rel_ids = []
     # zenodo url -> related_identifiers
-    url = plan['links']['record_html']
+    url = plan['links']['html']
     rel_ids.append( {'identifier': url,
          'relation_type': {'id': "ismetadatafor", 'title': {'en': "Is Metadata for"} },
          'resource_type': {'id': "metadata", 'title': {'en': "Metadata record"}},
@@ -373,7 +382,7 @@ def to_invenio(plan):
     recognised_coms = ["arc-coe-clex-data", "arc-coe-clex"]
     communities = meta.pop('communities', [])
     if communities != []: 
-        identifiers = [c['identifier'] for c in communities if c['identifier'] in recognised_coms]
+        identifiers = [c['id'] for c in communities if c['id'] in recognised_coms]
         for comid in identifiers:
             rel_ids.append( {'identifier': f"https://zenodo.org/communities/{comid}",
                    'relation_type': {'id': "ispartof", 'title': {'en': "Is part of"} },
@@ -383,8 +392,10 @@ def to_invenio(plan):
     # grants will be eventually a field in itslef for the moment add to related_identifiers
     grants = meta.pop('grants', [])
     if grants != []: 
-        identifiers = [g['id'] for g in grants]
-        for gid in identifiers:
+        for g in grants:
+            gid = f"{g['funder']['doi']}::{g['code']}"
+        #identifiers = [g['id'] for g in grants]
+        #for gid in identifiers:
             rel_ids.append( {'identifier': f"{gid}",
                    'relation_type': {'id': "isrelatedto", 'title': {'en': "Is related to"} },
                    'resource_type': {'id': "other-resource", 'title': {'en': "Other"}},
@@ -397,8 +408,8 @@ def to_invenio(plan):
         meta['description'] += f"{ref}\n"
 
     # license -> rights 
-    license = meta.pop('license', "")
-    meta['rights'] = invenio_license(license)
+    license = meta.pop('license', {})
+    meta['rights'] = invenio_license(license['id'])
 
     # keywords  -> subjects and add to description for double checking
     # first work out if they could be for codes
