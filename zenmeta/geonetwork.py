@@ -1,8 +1,9 @@
 import json
-from bs4 import BeautifulSoup
 import sys
-from util import read_json, convert_for
 import json
+import re
+from bs4 import BeautifulSoup
+from util import read_json, convert_for
 from exception import ZenException
 
 # Finding all instances of tag
@@ -36,12 +37,40 @@ def process_urls(urls, geo_id):
     return links_unique
 
 
+def process_abstract(soup):
+    """Extract abstract then looks for urls and wraps them in html
+    """
+    abstract = find_string(soup, 'abstract')
+    # find all occurences of http and add a html link
+    idxs = [m.start() for m in re.finditer('http', abstract)] 
+    # to add to index to keep into account its new position after html chars added
+    addedchar = 0
+    for idx in idxs:
+        idx = idx + addedchar # to keep into account
+        part1 = abstract[:idx]
+        part2 = abstract[idx:]
+        for separator in (" ", "<"):
+            try:
+                space_idx = part2.index(separator)
+                break
+            except :
+                continue
+        else:
+            space_idx = len(abstract) + 1
+        part2 = "<a href='" + part2[:space_idx] + "'>LINK</a>" + part2[space_idx:] 
+        abstract = part1 + part2
+        addedchar += 19
+        del part1, part2
+    return abstract
+
+
 def process_description(soup, keywords, for_codes):
     """Put together description adding to the abstract other fields that cannot be directly mapped to other fields
     """
 
     # retrieve all the relevant fields
     abstract = find_string(soup, 'abstract')
+    abstract = process_abstract(soup)
     update = "<p>Update: " + find_string(soup, 'maintenanceAndUpdateFrequency') + "</p>"
     fformat = "<p>Format: " + find_string(soup, 'MD_Format') + "</p>"
     lineage = "<p>Lineage: " + find_string(soup, 'LI_Lineage') + "</p>"
@@ -98,14 +127,19 @@ def get_parties(soup):
             person = { 'name': find_string(p, 'individualName'),
                        'affiliation' : find_string(p, 'organisationName'),
                        'role': role, 'org': False} 
-            #person = { 'name': p.find('individualName').text.strip(),
-            #           'affiliation' : p.find('organisationName').text.strip(),
-            #           'role': role, 'org': False} 
             if person['name'] == person['affiliation']:
                 person['org'] = True
             if person not in people:
                 people.append(person)
-    return people
+    cite_authors = ""
+    for p in people:
+        if p['role'] in ['author', 'principalInvestigator']:
+            bits = p['name'].split()
+            # if name composed of more then 2 parts, all but last are saved as name
+            name = " ".join(bits[:-1])
+            surname = bits[-1]
+            cite_authors += f"{surname}, {name[0]}., "
+    return people, cite_authors
 
 
 def get_dates(soup):
@@ -152,7 +186,7 @@ def main():
     path = find_string(soup, 'mediumName')
     project = find_string(soup, 'code')
     out['location'] = "".join(["<p>Direct access to the data is available on the NCI servers:</p>",
-           f"<p>project: https://my.nci.org.au/mancini/login?next=/mancini/project/{project}</p>",
+           f"<p>project: <a href='https://my.nci.org.au/mancini/login?next=/mancini/project/{project}'></a></p>",
            f"<p>path: {path}</p>"])
 
     out['keywords'], for_codes  = get_codes(soup)
@@ -161,23 +195,31 @@ def main():
         codes20 = convert_for(c)
         out['for_codes'].extend(codes20)
  
-    out['parties'] = get_parties(soup)
+    out['parties'], cite_authors = get_parties(soup)
 
-    out['dates'], year = get_dates(soup)
-    out['citation'] = " ".join(["<p>Preferred citation:</p>", f"<p><authors> ({year}): {out['title']}",
+    dates, year = get_dates(soup)
+    if dates['publication'] != "":
+        out['publication_date'] = dates['publication']
+    elif dates['creation'] != "":
+        out['publication_date'] = dates['creation']
+
+
+
+    out['citation'] = " ".join(["<p>Preferred citation:</p>", f"{cite_authors} {year}. {out['title']}",
                f"NCI Australia. (Dataset). https://dx.doi.org/{out['doi']}</p>",
-               "<p>If accessing from NCI thredds you can also ackwnoledge the service:</p>",
+               "<p>If accessing from NCI thredds you can also acknowledge the service:</p>",
                "<p>NCI Australia (2021): NCI THREDDS Data Service. NCI Australia. (Service)",
                "https://dx.doi.org/10.25914/608bfc062f4c7</p>"])
     # Links
     urls = soup.find_all('URL')#.text.strip().split()
-    out['links'] = process_urls(urls, geo_id)
+    out['related_identifiers'] = process_urls(urls, geo_id)
 
     # Find geo spatial extent
     out['geospatial'] = find_string(soup, 'EX_GeographicBoundingBox', multiple=True)
     out['time_coverage'] = find_string(soup, 'TimePeriod', multiple=True)
     # save 2008 version of for_codes in description
     out['description'] = process_description(soup, out['keywords'], for_codes)
+    out['publisher'] = 'NCI Australia'
 
     with open(f'{geo_id}.json', 'w') as fp:
         json.dump([out], fp)

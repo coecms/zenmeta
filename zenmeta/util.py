@@ -34,7 +34,7 @@ def config_log():
     logger = logging.getLogger('zen_log')
     # set a formatter to manage the output format of our handler
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                                  "%Y-%m-%d H:%M")
+                                  "%Y-%m-%d %H:%M")
     # set the level for the logger, has to be logging.LEVEL not a string
     # until we do so cleflog doesn't have a level and inherits the root
     # logger level:WARNING
@@ -84,21 +84,6 @@ def get_token(portal, production=False):
     return token
 
 
-def output_mode(ctx, records, mode, user=False, draft=False):
-    if ctx.obj['portal'] == "invenio":
-        id_label = 'id'
-        #if user is False:
-        records = records['hits']['hits']
-    elif user is True:
-        records = records['hits']['hits']
-        id_label = 'id'
-    else:
-        id_label = 'record_id'
-    if mode == 'ids':
-        records = [x[id_label] for x in records]
-    return records 
-
-
 def read_json(fname):
     """ Read a json file and return content 
         
@@ -121,20 +106,42 @@ def read_json(fname):
     return data
 
 
+def write_json(data, fname='output.json'):
+    """Write data to a json file  
+        
+    Parameters
+    ----------
+    data : json object
+        The file content as a json object
+    fname : str
+        Json filename 
+
+    Returns
+    -------
+    """
+
+    try:
+        with open(fname, 'w') as f:
+            json.dump(data, f, indent = 3)
+    except:
+        ZenException(f"Check that {data} exists and it is an object compatible with json")
+    return 
+
+
 def read_xml(fname):
     """ Read a xml file and return content 
         
     Parameters
     ----------
     fname : str
-        Json filename 
+        xml filename 
 
     Returns
     -------
     data : json object
         The file content as a json object
     """
-
+# to do!!!
     try:
         with open(fname, 'r') as f:
             data = json.load(f)
@@ -149,11 +156,13 @@ def post_json(url, token, data, log):
     Parameters
     ----------
     url : str
-        The url address to post to 
-    token : str
-        The authentication token for the api 
+        The url to post to
+    token: str
+        The authentication token
     data : json object
         The file content as a json object
+    log: obj
+        The logging obj to send debug information
 
     Returns
     -------
@@ -163,10 +172,42 @@ def post_json(url, token, data, log):
 
     log.debug(f"Post request url: {url}")
     headers = {"Content-Type": "application/json"}
+    params = {'access_token': token}
     r = requests.post(url,
-            params={'access_token': token}, json=data,
+            params=params, json=data,
             headers=headers)
-    if r.status_code in  [400, 403, 500]:
+    if r.status_code >= 400:
+        log.info(r.text)
+    return r
+
+
+def put_json(url, token, data, log):
+    """ Post data to a json file
+        
+    Parameters
+    ----------
+    url : str
+        The url to post to
+    token: str
+        The authentication token
+    data : json object
+        The file content as a json object
+    log: obj
+        The logging obj to send debug information
+
+    Returns
+    -------
+    r : requests object
+      The requests response object
+    """
+
+    log.debug(f"Post request url: {url}")
+    headers = {"Content-Type": "application/json"}
+    params = {'access_token': token}
+    r = requests.put(url,
+            params=params, json=data,
+            headers=headers)
+    if r.status_code >= 400:
         log.info(r.text)
     return r
 
@@ -181,7 +222,7 @@ def get_bucket(url, token, record_id):
     token : str
         The authentication token for the api 
     record_id : str
-        The id for record we want to upload files to
+        The id for record we  to upload files to
 
     Returns
     -------
@@ -194,6 +235,44 @@ def get_bucket(url, token, record_id):
     r = requests.get(url, params={'access_token': token},
                      headers=headers)
     return r.json()["links"]["bucket"]
+
+
+def extract_records(ctx, records, mode, lrids, user=False, draft=False):
+    """Extract actual records from request response depending on
+       selected mode 
+        
+    Parameters
+    ----------
+    ctx : Click Context obj
+        Including base url and cite url, community_id, portal and token info
+    records : dict
+        The records returned by the requests response
+    user : bool, optional 
+        If True retrieve all records for the user
+        (default False) 
+    draft : bool, optional 
+        If True then retrieve only draft records 
+        (default False) 
+    mode : str, optional 
+        Define the kind of information to retrieve, default is complete records 
+        (default='json')
+
+    Returns
+    -------
+    records : list
+        The extracted records as a list
+    """
+    # if user specified record ids to retrieve then records list is ready 
+    # otherwise extract from ['hits']['hits']
+    # if mode ids, retrieve only the records' ids
+    if lrids!= 0:
+        pass
+    else:
+        records = records['hits']['hits']
+    if mode == 'ids':
+        records = [f"{x['metadata']['title']}, {x['id']}" for x in records]
+        #records = [x['id'] for x in records]
+    return records 
 
 
 def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
@@ -237,26 +316,27 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
     # For invenio
     # {"status": 406, "message": "Invalid 'Accept' header. Expected one of: application/json, application/vnd.inveniordm.v1+json, application/vnd.citationstyles.csl+json, application/vnd.datacite.datacite+json, application/vnd.datacite.datacite+xml, application/x-dc+xml, text/x-bibliography"}
     # Build request url based on:
-    # if record_id is passed retireve a specific record
-    # elif user is passer get all record for that user
-    # elif community is passed get all record for community
-    # else get all record
+    # if record_id is passed retrieve a specific record
+    # elif user is passed get all records for that user
+    # elif community is passed get all records for community
+    # else get all records
     # if draft is True get drafts otherwise get published records
     # only the user query or a specific record return drafts
     # NB community currently works only for zenodo
     #if ctx.obj['community_id'] != "" or user is True:
     if user is True:
-        url = ctx.obj['url']
-    else:
         url = ctx.obj['deposit']
-        if mode == 'bibtex' and ctx.obj['portal'] == "zenodo":
+    else:
+        url = ctx.obj['url']
+        if (mode == 'bibtex' and not record_id and ctx.obj['community_id'] == ""
+            and ctx.obj['portal'] == "zenodo"):
             raise ZenException("This would retrieve all records in zenodo!!\n"+
                     "Select a community_id or user option to limit query")
-    params = {'access_token': ctx.obj['token']}
+    params = {'access_token': ctx.obj['token'], 'size': 100}
     if record_id:
-        url = url + f"/${record_id}"
+        url = url + f"/{record_id}"
     elif ctx.obj['community_id'] != "":
-        params['community'] = f"{ctx.obj['community_id']}"
+        params['communities'] = f"{ctx.obj['community_id']}"
     elif ctx.obj['portal'] == "invenio" and user:
         url = url.replace("/records","/user/records")
     if draft:
@@ -266,7 +346,7 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
             params['q'] = "is_published:false"
         elif ctx.obj['portal'] == "zenodo":
             params['status'] = "draft"
-
+    # send request
     r = requests.get(url, params=params,
                      headers=headers[mode])
     ctx.obj['log'].debug(f"{headers[mode]}")
@@ -275,6 +355,7 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
     ctx.obj['log'].debug(f"Request url: {r.url}")
     if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json', 'ids']:
         output = r.json()
+        # should differentiate ids from others!!!
     else:
         output = r.text
     ctx.obj['log'].debug(f"Type of output returned: {type(output)}")
@@ -291,15 +372,16 @@ def remove_record(ctx, record_id, safe):
 
     headers = {"Content-Type": "application/json"}
     # if safe mode ask for confirmation before deleting
-    answer = 'Y'
     url = ctx.obj['url']+ f"/{record_id}"
     log = ctx.obj['log']
     if ctx.obj['portal'] == "invenio":
         url = url + "/draft"
     if safe:
         answer = input(f"Are you sure you want to delete {record_id}? (Y/N)")
+    else:
+        answer = 'Y'
     if answer == 'Y':
-        r = requests.delete(ctx.obj['url']+ f"/{record_id}",
+        r = requests.delete(url,
                 params={'access_token': ctx.obj['token']},
                 headers=headers)
         if r.status_code == 204:
@@ -312,12 +394,51 @@ def remove_record(ctx, record_id, safe):
         r = None
     return r
 
+
+def convert_ror(affiliation):
+    """Convert affiliation to ror  codes used by invenio
+
+    Parameters
+    ----------
+    affiliation: str
+        Affiliation name
+
+    Returns
+    -------
+    ror: str
+        ROR id as recorded in invenio affiliations vocabulary
+    """
+    rors = read_json("data/affiliations.json")
+    if affiliation == "University of New South Wales":
+        affiliation = "UNSW Sydney"
+    # intialise ror in case there is no match
+    ror = {'name': affiliation}
+    for k,v in rors.items():
+        if affiliation in k:
+            ror = {'name': k, 'id': v['id']}
+            break
+    return ror
+
+
 def convert_for(code08):
     """Convert ANZSRC FOR codes from 2008 to 2020 classification
 
-    code08: dict
-            dictionary with code and name keys
+    Parameters
+    ----------
+    code08: int/str 
+        Code in FOR2008 style id (int) or name (str)
+
+    Returns
+    -------
+    map_codes: list(dict)
+        List of FOR2020 mappings (dictionaries) for input code
     """
-    codes20 = read_json('data/for_map.json')
-    newcodes = codes20[code08['code']]['codes_2020']
-    return newcodes
+    map_codes = []
+    codes20 = read_json("data/for_map.json")
+    if isinstance(code08, int):
+        map_codes = codes20[code08['code']]['codes_2020']
+    else:
+        for k,v in codes20.items():
+            if v['name_2008'] == code08:
+                map_codes = v['codes_2020']
+    return map_codes
