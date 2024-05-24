@@ -259,6 +259,8 @@ def list_records(ctx, rids, user, draft, mode):
     if mode in ['json', 'datacite-json', 'csl', 'vnd.zenodo.v1+json']:
         zen_log.info('Writing output to output.json file')
         write_json(records)
+    elif mode in ['bibtex']:
+        print(records)
     else:
         for r in records:
             print(r)

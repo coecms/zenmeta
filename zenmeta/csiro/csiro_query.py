@@ -92,8 +92,8 @@ def main():
                "for": forcode,
                "soud": False,
                "showFacets": True,
-               #"psd":" 2012-03-29T17:21:37+10:00",
-               #"ped":" 2023-01-30T09:22:32+10:00",
+               "psd":"2022-07-01T17:20:10+10:00",
+               "ped":"2023-07-13T10:20:10+10:00",
                "sb": "RELEVANCE"}
     resultPage = run_query(url, queryParams, headers)
     writer = write_records(resultPage, writer)

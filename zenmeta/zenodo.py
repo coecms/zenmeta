@@ -343,37 +343,37 @@ def to_invenio(plan):
     # Most of the plan can be used as it is, only selected elements need to be mapped
     meta = plan['metadata']
     # if access restricted skip entire record
-    if meta['access_right'] == "restricted":
-        return {} 
+    #if meta['access_right'] == "restricted":
+    #    return {} 
     # remove unwanted keys
-    discard = ['access_right_category', 'prereserve_doi']
-    [meta.pop(k, None) for k in discard]
+    #discard = ['access_right_category', 'prereserve_doi']
+    #[meta.pop(k, None) for k in discard]
 
     # upload_type _> resource_type
     #rtype = meta.pop('upload_type')
     #meta['resource_type'] = {'id': rtype, 'title': rtype.capitalize()}
     # notes -> additional_information
-    notes = meta.pop('notes', "")
-    meta['additional_descriptions'] = { 'description': notes,
-        'lang': { 'id': "eng", 'title': {'en': "English"} },
-        'type': { 'id': "citation-access",
-                  'title': {'en': "Citation and access information"} }
-        }
+    #notes = meta.pop('notes', "")
+    #meta['additional_descriptions'] = { 'description': notes,
+    #    'lang': { 'id': "eng", 'title': {'en': "English"} },
+    #    'type': { 'id': "citation-access",
+    #              'title': {'en': "Citation and access information"} }
+    #    }
 
     # try to guess publisher
-    if "10.4225" in meta['doi']:
-        meta['publisher'] = "NCI Australia"
-    elif "zenodo" in meta['doi']:
-        meta['publisher'] = "Zenodo"
+    #if "10.4225" in meta['doi']:
+    #    meta['publisher'] = "NCI Australia"
+    #elif "zenodo" in meta['doi']:
+    #    meta['publisher'] = "Zenodo"
 
     # fix existing related_identifiers
     #meta['related_identifiers'], meta['identifiers'] = map_identifiers(meta['related_identifiers'])
     rel_ids = meta.pop('related_identifiers', [])
-    meta['related_identifiers'] = map_identifiers(rel_ids)
+    #meta['related_identifiers'] = map_identifiers(rel_ids)
     meta['identifiers'] = meta.pop('alternate_identifiers', [])
     # extend related identifiers
     # zenodo url -> related_identifiers
-    url = plan['links']['html']
+    url = plan['links']['parent_html']
     rel_ids.append( {'identifier': url,
          'relation_type': {'id': "ismetadatafor", 'title': {'en': "Is Metadata for"} },
          'resource_type': {'id': "metadata", 'title': {'en': "Metadata record"}},
@@ -394,26 +394,26 @@ def to_invenio(plan):
     if grants != []: 
         for g in grants:
             gid = f"{g['funder']['doi']}::{g['code']}"
-        #identifiers = [g['id'] for g in grants]
-        #for gid in identifiers:
+        identifiers = [g['id'] for g in grants]
+        for gid in identifiers:
             rel_ids.append( {'identifier': f"{gid}",
                    'relation_type': {'id': "isrelatedto", 'title': {'en': "Is related to"} },
                    'resource_type': {'id': "other-resource", 'title': {'en': "Other"}},
                    'scheme': "doi"} )
-    meta['related_identifiers'].extend(rel_ids)
+    meta['related_identifiers'] = rel_ids
 
     # references -> description
-    references = meta.pop('references', [])
-    for ref in references:
-        meta['description'] += f"{ref}\n"
+    ##references = meta.pop('references', [])
+    #for ref in references:
+    #    meta['description'] += f"{ref}\n"
 
     # license -> rights 
-    license = meta.pop('license', {})
-    meta['rights'] = invenio_license(license['id'])
+    #license = meta.pop('license', {})
+    #meta['rights'] = invenio_license(license['id'])
 
     # keywords  -> subjects and add to description for double checking
     # first work out if they could be for codes
-    keywords = meta.pop('keywords', [])
+    keywords = meta['subjects']
     codes20 = []
     for k in keywords:
         codes20.extend( convert_for(k) )
@@ -422,18 +422,18 @@ def to_invenio(plan):
         meta['subjects'].append({ 'scheme': "ANZSRC-FOR",
                                   'id': c['code'], 
                                  'subject': c['name']})
-    keystr = f"<p>Keywords: {', '.join(keywords)}</p>"
+    keystr = f"<p>Keywords: {', '.join([x['subject'] for x in keywords])}</p>"
     meta['description'] += keystr
 
     # language -> languages
-    meta['languages'] =   {'id': "eng", 'title': {'en': "English"}}
-    meta.pop('language', None)
+    #meta['languages'] =   {'id': "eng", 'title': {'en': "English"}}
+    #meta.pop('language', None)
 
     # creators
-    creators = meta.pop('creators')
-    meta['creators'] = []
-    for record in creators:
-        meta['creators'].append( invenio_creator(record) )
+    #creators = meta.pop('creators')
+    #meta['creators'] = []
+    #for record in creators:
+    #    meta['creators'].append( invenio_creator(record) )
 
     final = {}
     final['metadata'] = meta
@@ -441,11 +441,13 @@ def to_invenio(plan):
     final['files'] = {'enabled': False, 'order': []}
     final['access'] = {'record': "public", 'files': "public", 'status': "metadata-only",
                        'embargo': {'active': False, 'reason': None} }
-    #if not (plan['doi'] and plan['doi'].strip()):
-    #    plan['doi'] = "10.1234567/" + random_string()
-    final['pids'] = {'doi': {'identifier': meta['doi'],
+    doi = plan['pids']['doi'].get('identifier',None)
+    if not (doi and doi.strip()):
+        doi = "10.1234567/" + random_string()
+    final['pids'] = {'doi': {'identifier': doi,
                                  'provider': "external"}}
 
+    print(final)
     return final 
 
 

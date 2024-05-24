@@ -328,7 +328,8 @@ def get_records(ctx, record_id=None, user=False, draft=False, mode='json'):
         url = ctx.obj['deposit']
     else:
         url = ctx.obj['url']
-        if mode == 'bibtex' and not record_id and ctx.obj['portal'] == "zenodo":
+        if (mode == 'bibtex' and not record_id and ctx.obj['community_id'] == ""
+            and ctx.obj['portal'] == "zenodo"):
             raise ZenException("This would retrieve all records in zenodo!!\n"+
                     "Select a community_id or user option to limit query")
     params = {'access_token': ctx.obj['token'], 'size': 100}
