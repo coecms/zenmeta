@@ -77,6 +77,8 @@ def process_party(party, roles):
         A modified version of the author dictionary
     """
     creator = {}
+    # assign role based on mapping dictionary
+    creator['role'] = roles[party['role']]
     # open affiliations vocab to find id for institution
     aff_dict = read_json('data/affiliations.json')
     if 'affiliation' in [k for k in party.keys()]:
@@ -90,15 +92,19 @@ def process_party(party, roles):
                 if v['acronym'] == aff:
                     aff_id = v['id']
                     aff = k
+        if party['name'] == '' and party['role'] in ['owner','funder']:
+            creator['name'] = aff
+            party['org'] = True
     else:
         aff = ""
         aff_id = ""
     if aff_id != "":
         creator['affiliations'] = [{'id': aff_id, 'name': aff}]
-    # assign role based on mapping dictionary
-    creator['role'] = roles[party['role']]
+    print(party)
+    print(creator)
     if party['org'] == False:
         bits = party['name'].split()
+        print(bits)
         firstname = " ".join(bits[:-1])
         surname = bits[-1] 
         creator['person_or_org'] = { 'family_name': surname,

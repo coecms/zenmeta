@@ -40,13 +40,16 @@ def zen_catch():
 
 
 @click.group()
-@click.option('--zenodo', 'portal', is_flag=True, default=False, flag_value='zenodo',
-        help="To interact with Zenodo, instead of default Invenio")
-@click.option('--production', '-p', 'production', is_flag=True, default=False,
-               help="access to production site instead of test environment")
-@click.option('--community', '-c', 'community_id', default="",
-               help="Community identifier, if passed query corresponding" +
-                     "community, default is empty str")
+@click.option('--zenodo', 'portal', is_flag=True,
+              default=False, flag_value='zenodo', required=False,
+              help="Connect to Zenodo, instead of default Invenio")
+@click.option('--production', '-p', 'production', is_flag=True,
+               default=False, required=False,
+               help="access production instead of test environment")
+@click.option('--community', '-c', 'community_id',
+               default="", required=False,
+               help="Community identifier, to run query for specific" +
+                     "community, default is no community selected")
 @click.option('--token', '-t', 'token', required=False,
                help="User token, passed to override one configured in "
                      "~/invenio_<production/test> file")
@@ -54,8 +57,33 @@ def zen_catch():
                help="Show debug info")
 @click.pass_context
 def zen(ctx, portal, production, community_id, token, debug):
+    """Main command sets portal (including production or test mode),
+    community and log file with logging level.
+
+    Parameters
+    ----------
+    ctx: Click Context
+        Click context obj includes api information
+    zenodo : Bool
+        If True connect to zenodo instead of Invenio. Default False
+    production : Bool
+        If True connect to production env instead of development.
+        Default False
+    community : str
+        Invenio/zenodo community identifier to select specific community.
+        Optional default is "": no community selected.
+    token : str
+        User token, optional by default reads "~/invenio_<production/test>
+    debug : Bool
+        If True run code in debug mode
+
+    Returns
+    -------
+        None
+
+    """
     ctx.obj={}
-    ctx.obj['log'] = config_log()
+    ctx.obj['log'] = config_log(debug)
     # set up a config depending on portal and production values
     ctx.obj['production'] = production
     ctx.obj['community_id'] = community_id
@@ -66,19 +94,19 @@ def zen(ctx, portal, production, community_id, token, debug):
         ctx.obj['portal'] = portal 
         # can only be zenodo currently could change in future
         ctx = set_zenodo(ctx, production)
-    # get either sandbox or api token to connect
+    # get sandbox(zenodo)/development(invenio) or api token
     if token:
         ctx.obj['token'] = token
     else:
-        ctx.obj['token'] = get_token(ctx.obj['portal'], ctx.obj['production'])
+        ctx.obj['token'] = get_token(ctx.obj['portal'],
+            ctx.obj['production'])
 
-    if debug:
-        ctx.obj['log'].setLevel(logging.DEBUG)
     ctx.obj['log'].debug(f"Token: {ctx.obj['token']}") 
     ctx.obj['log'].debug(f"Portal: {ctx.obj['portal']}") 
     ctx.obj['log'].debug(f"Community: {ctx.obj['community_id']}") 
     ctx.obj['log'].debug(f"API url: {ctx.obj['url']}") 
-    ctx.obj['log'].debug(f"Production: {ctx.obj['production']}") 
+    ctx.obj['log'].debug(f"Production: {ctx.obj['production']}")
+    return
 
 
 @zen.command(name='meta')
@@ -86,30 +114,38 @@ def zen(ctx, portal, production, community_id, token, debug):
               "containing metadata records to upload")
 @click.option('--version', is_flag=True, default=False,
                help="Create new version if record already exists")
-@click.option('--skip', is_flag=True, default=False,
+@click.option('--skip', is_flag=True, default=False, required=False,
                help="Skip processing if record comes from backup")
-@click.option('--fromzen', is_flag=True, default=False,
+@click.option('--fromzen', is_flag=True, default=False, required=False,
                help="Minimal processing if record comes from zenodo")
 @click.pass_context
 def upload_meta(ctx, fname, version, skip, fromzen):
-    """Upload metadata from a list of records in a json input file.
+    """Upload metadata for list of records in json input file.
 
     If a record exists already is updated, otherwise creates a new one.
     If "version" option is passed, creates a new version for record.
+    For records coming from CSIRO DAP or genonetwork some processing
+    to get the correct mapping is necessary. If records are from Zenodo
+    or are backup records can be uploading as they are.
 
     Parameters
     ----------
-    ctx: dict
-        Click context obj including api information 
+    ctx: Click Context
+        Click context obj includes api information 
     fname: str
         Input json filename containing records to upload
     version: bool, optional
         If True create a new version for any existing records in list
+    skip : Bool
+        If True the "processing" step in the workflow won't be apply.
+        To be used if uploading backup records. Default is False
+    zenodo??
 
     Returns
     -------
-    """
+       None
 
+    """
     token = ctx.obj['token']
     zen_log = ctx.obj['log']
     zen_log.info(f"Uploading metadata from {fname} to {ctx.obj['portal']},"
@@ -130,7 +166,6 @@ def upload_meta(ctx, fname, version, skip, fromzen):
                 #record = plan
                 # temporarily convert record from v9 to v10
                 record = convert_v10(plan, ctx.obj['community_id_db'])
-                #print(record)
             elif fromzen:
                 zen_log.info(plan['metadata']['title'])
                 record = to_invenio(plan)
@@ -140,10 +175,13 @@ def upload_meta(ctx, fname, version, skip, fromzen):
             else:
                 zen_log.info(plan['title'])
                 record = process_invenio_plan(plan, ctx.obj['community_id_db'])
+        zen_log.debug(f"{record}")
+        # post record to portal
         r = post_json(ctx.obj['url'], token, record, zen_log)
         zen_log.debug(f"Request: {r.request}") 
         zen_log.debug(f"Request url: {r.url}") 
         zen_log.info(r.status_code) 
+        # check what happens to review?
         #if ctx.obj['portal'] == "invenio" and ctx.obj['community_id_db'] != "":
         #    r_review = submit_review(ctx, r.json()['id'])
         #zen_log.debug(f"Review request: {r_review.request}") 
@@ -161,9 +199,20 @@ def delete_records(ctx, ids, draft):
     """Delete drafts records based on their ids
 
     If a list or record ids is not passed then delete all drafts record
+    NB this currently only works for drafts in zenodo. It's not possible 
+    to remove published records in zenodo.
+    We still need to work out a way to remove cleanly records from invenio.
+
+    Parameters
+    ----------
+    ctx: Click Context
+        Click context obj includes api information
+
+    Returns
+    -------
+        None
 
     """
-
     # still to do:
     # create a custom function for invenio to remove record
     # if possible we should just have one in util for both api
@@ -191,6 +240,7 @@ def delete_records(ctx, ids, draft):
     safe = True
     for record_id in ids:
         status = remove_record(ctx, record_id, safe)
+    return
 
 
 @zen.command(name='upload')
@@ -201,8 +251,18 @@ def delete_records(ctx, ids, draft):
 @click.pass_context
 def upload_files(ctx, record_id, fname):
     """Upload files to existing record
-    """
 
+    NB. this also might be only working for zenodo, never tested with 
+    invenio. However, mechanism might be the same
+
+    ctx: Click Context
+        Click context obj includes api information
+
+    Returns
+    -------
+        None
+
+    """
     token = ctx.obj['token']
     zen_log = ctx.obj['log']
     # get either sandbox or api token to connect
@@ -220,6 +280,7 @@ def upload_files(ctx, record_id, fname):
         f = f.replace('\n','')
         status = upload_file(bucket_url, token, record_id, f)
         zen_log.info(f"Request status: {status}")
+    return
 
 
 @zen.command(name='list')
@@ -235,6 +296,14 @@ def upload_files(ctx, record_id, fname):
 @click.pass_context
 def list_records(ctx, rids, user, draft, mode):
     """List records based on input arguments
+
+    ctx: Click Context
+        Click context obj includes api information
+
+    Returns
+    -------
+        None
+
     """
     #token = ctx.obj['token']
     #url = ctx.obj['url']
@@ -264,6 +333,7 @@ def list_records(ctx, rids, user, draft, mode):
     else:
         for r in records:
             print(r)
+    return
 
 
 @zen.command(name='community')
@@ -284,6 +354,8 @@ def community(ctx, rids):
 
     Returns
     -------
+        None
+
     """
     if 'community_id_db' not in ctx.obj.keys():
         raise ZenException("There is no community defined")
@@ -292,6 +364,7 @@ def community(ctx, rids):
     for rid in rids:
         status = add_community(ctx, rid, com_id)
         zen_log.info(f"Request status: {status}")
+    return
 
 
 if __name__ == '__main__':

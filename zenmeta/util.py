@@ -25,7 +25,7 @@ from os.path import expanduser
 from exception import ZenException
 
 
-def config_log():
+def config_log(debug):
     """Configure log file to keep track of activity"""
 
     # start a logger
@@ -38,20 +38,24 @@ def config_log():
     # set the level for the logger, has to be logging.LEVEL not a string
     # until we do so cleflog doesn't have a level and inherits the root
     # logger level:WARNING
-    logger.setLevel(logging.INFO)
+    level = logging.INFO
+    flevel = logging.WARNING
+    if debug:
+        level = logging.DEBUG
+        flevel = logging.DEBUG
+    logger.setLevel(level)
 
-    # add a handler to send WARNING level messages to console
+    # add a handler to send INFO level messages to console
+    # or DEBUG level if debug is on
     clog = logging.StreamHandler()
-    clog.setLevel(logging.WARNING)
+    clog.setLevel(level)
     logger.addHandler(clog)
 
-    # add a handler to send DEBUG/INFO level messages to file
-    # use DEBUG level for file handler, if main log level is INFO
-    # only INFO messages will pass has this filter is applied first
+    # add a handler to send DEBUG/WARNING level messages to file
     logname = expanduser(f'~/zenmeta_log.txt')
 
     flog = logging.FileHandler(logname)
-    flog.setLevel(logging.DEBUG)
+    flog.setLevel(flevel)
     flog.setFormatter(formatter)
     logger.addHandler(flog)
 
